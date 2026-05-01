@@ -33,6 +33,17 @@ Available controls are intentionally small:
 - change model
 - show local chats
 - show status
+- show loaded memory and custom commands with `/memory`
+- show Cara's voice/product map with `/touch`
+- run markdown commands from `commands/*.md` or `<project>\.cara\commands\*.md`
 - exit
 
 Chats are stored under the active project folder at `<project>\.cara\sessions` using pi's JSONL session format. Use `sessions` to list project chats, `continue` or `--continue` to keep going from the newest chat, `resume` to open the picker, and `resume <id>` or `--session <id>` to open a specific one.
+
+## Human Touch Layer
+
+The CLI loads `AGENTS.md` files as project memory, keeps the banner copy warm but compact, and includes three starter commands:
+
+- `/second-look`
+- `/repair-render`
+- `/archive-ground`

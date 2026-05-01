@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { normalizeOpeningTheme, pickOpeningTheme } from "./banner.mjs";
@@ -7,6 +7,7 @@ const PI_ROOT = path.resolve("C:/Users/elson/my_coding_play/play projects/pi");
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CARA_THEME_CUSTOM_TYPE = "cara.theme.v1";
 const CARA_EXIT_CUSTOM_TYPE = "cara.exit.v1";
+const CARA_PROJECT_MEMORY_MARKER = "CARA_PROJECT_MEMORY";
 
 export const defaults = {
   piRoot: PI_ROOT,
@@ -81,6 +82,7 @@ export async function createCaraSession(options = {}) {
   });
 
   injectCaraGuide(result.session, readPrompt(defaults.prompt));
+  const projectMemory = injectProjectMemory(result.session, project);
 
   await preferDefaultModel(result.session, options.model ?? defaults.model);
 
@@ -89,6 +91,7 @@ export async function createCaraSession(options = {}) {
     project,
     sessions,
     theme,
+    projectMemory,
     thinking,
     modelFallbackMessage: result.modelFallbackMessage,
   };
@@ -201,9 +204,41 @@ export function describeRuntime(runtime) {
     sessionFile: sessionManager.getSessionFile(),
     sessionName: sessionManager.getSessionName?.(),
     usage,
+    projectMemory: runtime.projectMemory ?? [],
+    customCommands: listCustomCommands(runtime),
     thinking: runtime.session.thinkingLevel,
     model: model ? `${model.provider}/${model.id}` : "none",
   };
+}
+
+export function listCustomCommands(runtime) {
+  const dirs = getCustomCommandDirs(runtime);
+  const commands = [];
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) continue;
+      const name = path.basename(entry.name, ".md").toLowerCase();
+      const file = path.join(dir, entry.name);
+      const text = readFileSync(file, "utf8");
+      commands.push({
+        name,
+        file,
+        description: extractCommandDescription(text) ?? "custom prompt",
+      });
+    }
+  }
+  return dedupeCommands(commands);
+}
+
+export function loadCustomCommand(runtime, commandName, args = "") {
+  const name = String(commandName ?? "").replace(/^\//, "").trim().toLowerCase();
+  const command = listCustomCommands(runtime).find((item) => item.name === name);
+  if (!command) return undefined;
+  const body = readFileSync(command.file, "utf8").trim();
+  const argText = String(args ?? "").trim();
+  if (body.includes("{{args}}")) return body.replaceAll("{{args}}", argText);
+  return argText ? `${body}\n\nUser arguments:\n${argText}` : body;
 }
 
 export function saveCaraExitSummary(runtime, summary) {
@@ -316,4 +351,65 @@ export function checkSetup() {
     guide: existsSync(defaults.prompt),
     inspectPrompt: existsSync(defaults.inspectPrompt),
   };
+}
+
+function injectProjectMemory(session, project) {
+  const files = findProjectMemoryFiles(project);
+  if (!files.length) return [];
+
+  const sections = [];
+  for (const file of files) {
+    const text = readFileSync(file, "utf8").trim();
+    if (!text) continue;
+    sections.push(`File: ${formatRelative(project, file)}\n${text.slice(0, 12000)}`);
+  }
+  if (!sections.length) return [];
+
+  const addition = `\n\n<${CARA_PROJECT_MEMORY_MARKER}>\n${sections.join("\n\n---\n\n")}\n</${CARA_PROJECT_MEMORY_MARKER}>`;
+  const currentBase = session._baseSystemPrompt ?? session.agent.state.systemPrompt ?? "";
+  session._baseSystemPrompt = currentBase.includes(`<${CARA_PROJECT_MEMORY_MARKER}>`)
+    ? currentBase.replace(new RegExp(`\\n\\n<${CARA_PROJECT_MEMORY_MARKER}>[\\s\\S]*?</${CARA_PROJECT_MEMORY_MARKER}>`), addition)
+    : `${currentBase}${addition}`;
+  session.agent.state.systemPrompt = session._baseSystemPrompt;
+  return files.map((file) => formatRelative(project, file));
+}
+
+function findProjectMemoryFiles(project) {
+  const files = [];
+  let current = path.resolve(project);
+  const root = path.parse(current).root;
+  while (true) {
+    const candidate = path.join(current, "AGENTS.md");
+    if (existsSync(candidate)) files.unshift(candidate);
+    if (current === root) break;
+    current = path.dirname(current);
+  }
+  return files;
+}
+
+function getCustomCommandDirs(runtime) {
+  return [
+    path.join(defaults.root, "commands"),
+    path.join(runtime.project, ".cara", "commands"),
+  ];
+}
+
+function extractCommandDescription(text) {
+  const lines = String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const frontmatterDescription = lines.find((line) => line.toLowerCase().startsWith("description:"));
+  if (frontmatterDescription) return frontmatterDescription.slice("description:".length).trim();
+  const heading = lines.find((line) => line.startsWith("#"));
+  if (heading) return heading.replace(/^#+\s*/, "").trim();
+  return lines[0]?.slice(0, 80);
+}
+
+function dedupeCommands(commands) {
+  const byName = new Map();
+  for (const command of commands) byName.set(command.name, command);
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function formatRelative(base, file) {
+  const relative = path.relative(base, file);
+  return relative && !relative.startsWith("..") ? relative : file;
 }

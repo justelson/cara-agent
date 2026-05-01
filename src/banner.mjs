@@ -43,7 +43,9 @@ export function renderOpeningBanner(
   openingTheme = pickOpeningTheme(),
 ) {
   const theme = normalizeOpeningTheme(openingTheme);
-  const artRows = renderTextArt(theme.message.toLowerCase(), Math.max(24, width));
+  const maxWidth = Math.max(24, width);
+  const displayMessage = chooseDisplayMessage(theme.message.toLowerCase(), maxWidth);
+  const artRows = renderTextArt(displayMessage, maxWidth);
 
   return [
     color("from elson", theme.palette.from),
@@ -51,6 +53,15 @@ export function renderOpeningBanner(
     "",
     `${color("type", theme.palette.art[0])} ${color("/ to open menu", theme.palette.hint)}`,
   ];
+}
+
+function chooseDisplayMessage(message, maxWidth) {
+  const maxRows = (Number(font.height) || 6) * 2;
+  if (renderTextArt(message, maxWidth).length <= maxRows) return message;
+  const fitting = messagePool
+    .map((value) => value.toLowerCase())
+    .filter((value) => renderTextArt(value, maxWidth).length <= maxRows);
+  return pick(fitting) ?? message;
 }
 
 function renderTextArt(text, maxWidth) {

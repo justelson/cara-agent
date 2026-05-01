@@ -6,6 +6,7 @@ import {
   createCaraSession,
   defaults,
   describeRuntime,
+  loadCustomCommand,
   listCaraSessions,
   runCaraPrompt,
   saveCaraExitSummary,
@@ -208,6 +209,14 @@ async function handleSlash(runtime, ui, input) {
     ui.status(describeRuntime(runtime));
     return true;
   }
+  if (command === "/memory") {
+    ui.memory(describeRuntime(runtime));
+    return true;
+  }
+  if (command === "/touch") {
+    ui.touch(defaults.root);
+    return true;
+  }
   if (command === "/sessions" || command === "/chats") {
     ui.sessions(await listCaraSessions({ project: runtime.project, sessions: runtime.sessions }));
     return true;
@@ -224,6 +233,11 @@ async function handleSlash(runtime, ui, input) {
     }
     const model = await setModel(runtime, arg);
     ui.info(`Model: ${model.provider}/${model.id}`);
+    return true;
+  }
+  const customPrompt = loadCustomCommand(runtime, command, arg);
+  if (customPrompt) {
+    await runCaraPrompt(runtime, customPrompt);
     return true;
   }
 

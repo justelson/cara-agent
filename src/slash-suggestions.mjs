@@ -1,9 +1,13 @@
+import { listCustomCommands } from "./cara-sdk.mjs";
+
 const COMMANDS = [
   { value: "/commands", label: "/commands", description: "show controls", kind: "command", submitOnEnter: true },
   { value: "/status", label: "/status", description: "project, model, thinking", kind: "command", submitOnEnter: true },
   { value: "/thinking", label: "/thinking", description: "cycle or set thinking effort", kind: "command" },
   { value: "/models", label: "/models", description: "open model picker", kind: "command" },
   { value: "/sessions", label: "/sessions", description: "show local chats", kind: "command", submitOnEnter: true },
+  { value: "/memory", label: "/memory", description: "project memory and custom commands", kind: "command", submitOnEnter: true },
+  { value: "/touch", label: "/touch", description: "Cara voice and product map", kind: "command", submitOnEnter: true },
   { value: "/exit", label: "/exit", description: "leave", kind: "command", submitOnEnter: true },
 ];
 
@@ -57,7 +61,14 @@ export function getSlashSuggestions(runtime, text) {
   }
 
   const prefix = query.slice(1);
-  return COMMANDS.filter((item) => item.label.slice(1).startsWith(prefix));
+  const customCommands = listCustomCommands(runtime).map((command) => ({
+    value: `/${command.name}`,
+    label: `/${command.name}`,
+    description: command.description,
+    kind: "command",
+    submitOnEnter: false,
+  }));
+  return [...COMMANDS, ...customCommands].filter((item) => item.label.slice(1).startsWith(prefix));
 }
 
 export function applySlashSuggestion(text, item) {

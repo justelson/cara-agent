@@ -1,6 +1,7 @@
 import { stdout as output } from "node:process";
 import { readFileSync } from "node:fs";
 import { renderOpeningBanner } from "./banner.mjs";
+import { buildTouchBrief } from "./cara-touch.mjs";
 import { renderMarkdown } from "./pi-markdown.mjs";
 import { runTerminalInputLoop } from "./terminal-input.mjs";
 import { buildTerminalTheme } from "./terminal-theme.mjs";
@@ -154,6 +155,9 @@ export function createCaraUi(options = {}) {
   /models               open model picker
   /models <provider/model>
   /sessions             show local chats
+  /memory               show loaded project memory
+  /touch                show Cara's product/voice map
+  /<custom>             run .cara/commands/<custom>.md
   /exit                 leave`);
     },
     status(status) {
@@ -164,6 +168,31 @@ export function createCaraUi(options = {}) {
       note("chat", status.sessionId);
       if (status.sessionName) note("name", status.sessionName);
       if (status.sessionFile) note("file", status.sessionFile);
+      if (status.projectMemory?.length) note("memory", status.projectMemory.join(", "));
+      if (status.customCommands?.length) note("commands", status.customCommands.map((command) => `/${command.name}`).join(", "));
+    },
+    memory(status) {
+      line(`${bold}Project memory${reset}`);
+      const memory = status.projectMemory ?? [];
+      const commands = status.customCommands ?? [];
+      if (!memory.length) {
+        line(`${theme.muted}  No AGENTS.md files loaded for this project.${reset}`);
+      } else {
+        for (const file of memory) line(`  ${theme.success}${file}${reset}`);
+      }
+      line(`${bold}Custom commands${reset}`);
+      if (!commands.length) {
+        line(`${theme.muted}  Add markdown commands in .cara/commands/*.md.${reset}`);
+      } else {
+        for (const command of commands) {
+          line(`  ${theme.success}/${command.name}${reset} ${theme.muted}${command.description}${reset}`);
+        }
+      }
+    },
+    touch(root) {
+      for (const touchLine of buildTouchBrief(root)) {
+        line(touchLine === "Cara touch map" ? `${bold}${theme.primary}${touchLine}${reset}` : `${theme.muted}${touchLine}${reset}`);
+      }
     },
     sessions(sessions) {
       if (!sessions.length) {
