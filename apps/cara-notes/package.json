@@ -1,0 +1,34 @@
+{
+  "name": "cara-notes-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:story": "node scripts/dev-story.cjs",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "story:api": "node --no-warnings server/story-api.mjs",
+    "story:seed": "node --no-warnings server/story-api.mjs --seed-only",
+    "smoke:story": "node scripts/story-api-smoke.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke:ui": "node scripts/smoke-ui.cjs"
+  },
+  "dependencies": {
+    "@blocknote/core": "0.49.0",
+    "@blocknote/mantine": "0.49.0",
+    "@blocknote/react": "0.49.0",
+    "@mantine/core": "8.3.11",
+    "@mantine/hooks": "8.3.11",
+    "@mantine/utils": "6.0.22",
+    "lucide-react": "^0.555.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.0.1",
+    "playwright": "^1.59.1",
+    "vite": "8.0.10",
+    "vitest": "^4.1.5"
+  }
+}

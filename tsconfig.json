@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@mariozechner/pi-agent-core": ["../../play projects/pi/packages/agent/src/index.ts"],
+      "@mariozechner/pi-agent-core/*": ["../../play projects/pi/packages/agent/src/*"],
+      "@mariozechner/pi-ai": ["../../play projects/pi/packages/ai/src/index.ts"],
+      "@mariozechner/pi-ai/oauth": ["../../play projects/pi/packages/ai/src/oauth.ts"],
+      "@mariozechner/pi-ai/*": [
+        "../../play projects/pi/packages/ai/src/*.ts",
+        "../../play projects/pi/packages/ai/src/providers/*.ts"
+      ],
+      "@mariozechner/pi-tui": ["../../play projects/pi/packages/tui/src/index.ts"],
+      "@mariozechner/pi-tui/*": ["../../play projects/pi/packages/tui/src/*"],
+      "typebox": ["../../play projects/pi/node_modules/typebox"]
+    },
+    "strict": true,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["src/**/*"]
+}

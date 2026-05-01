@@ -1,0 +1,14 @@
+{
+  "name": "builder-cli",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cara": "node bin/cara.mjs",
+    "inspect": "node bin/cara.mjs inspect",
+    "ask": "node bin/cara.mjs ask",
+    "doctor": "node bin/cara.mjs doctor"
+  },
+  "bin": {
+    "cara": "bin/cara.mjs"
+  }
+}

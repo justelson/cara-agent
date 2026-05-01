@@ -1,0 +1,290 @@
+{
+  "pages": [
+    {
+      "id": "story-room",
+      "title": "The Room We Kept",
+      "section": "Story",
+      "description": "A beginning that does not try to prove itself.",
+      "updated": "Story seed",
+      "tone": "grounded",
+      "cover": {
+        "provider": "unsplash",
+        "id": "Z8gSyHq9pdI",
+        "url": "https://images.unsplash.com/photo-1765547683044-6238c6ccf3c5?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwxfHx3YXJtJTIwcXVpZXQlMjByb29tJTIwd2luZG93fGVufDB8MHx8fDE3Nzc2NTIzNTV8MA&ixlib=rb-4.1.0&q=80&w=1080",
+        "thumbUrl": "https://images.unsplash.com/photo-1765547683044-6238c6ccf3c5?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwxfHx3YXJtJTIwcXVpZXQlMjByb29tJTIwd2luZG93fGVufDB8MHx8fDE3Nzc2NTIzNTV8MA&ixlib=rb-4.1.0&q=80&w=1080",
+        "alt": "Cozy room with fairy lights and a snowy window view.",
+        "color": "#262626",
+        "creditName": "Hanna Lazar",
+        "creditUrl": "https://unsplash.com/@potokvarte?utm_source=cara_notes&utm_medium=referral",
+        "unsplashUrl": "https://unsplash.com/photos/Z8gSyHq9pdI?utm_source=cara_notes&utm_medium=referral",
+        "downloadLocation": "https://api.unsplash.com/photos/Z8gSyHq9pdI/download?ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwxfHx3YXJtJTIwcXVpZXQlMjByb29tJTIwd2luZG93fGVufDB8MHx8fDE3Nzc2NTIzNTV8MA",
+        "query": "warm quiet room window",
+        "position": {
+          "x": 50,
+          "y": 46
+        }
+      },
+      "blocks": [
+        {
+          "type": "paragraph",
+          "content": "There are some conversations that do not begin like events. They begin like a room someone keeps finding their way back to. Nothing about it is clean enough for a chart. The door opens, closes, opens again. A message waits. A reply arrives late but still arrives with enough warmth to change the shape of the day."
+        },
+        {
+          "type": "paragraph",
+          "content": "This story is not here to decide what the connection was supposed to become. It is here to remember what it felt like to care carefully. The friendship line stayed real. So did the tenderness. Both things can stand in the same room without one erasing the other."
+        },
+        {
+          "type": "paragraph",
+          "content": "By the time April grew loud, the ordinary thread had become something with weather in it. Calls missed and repaired. Small misunderstandings softened. Long pauses stretched across the room, but the room did not disappear."
+        },
+        {
+          "type": "quote",
+          "content": "The point is not to make the silence confess. The point is to write honestly enough that the silence stops owning the whole day."
+        },
+        {
+          "type": "paragraph",
+          "content": "So the notebook starts here: not with evidence, not with a verdict, not with a dashboard of meaning. It starts with a person trying to keep care clean while the feeling becomes large enough to need somewhere private to go."
+        }
+      ]
+    },
+    {
+      "id": "before-april",
+      "title": "Before April",
+      "section": "Story",
+      "description": "The quieter months before the thread became dense.",
+      "updated": "Story seed",
+      "tone": "plain",
+      "cover": {
+        "provider": "unsplash",
+        "id": "-7J0In5z6EU",
+        "url": "https://images.unsplash.com/photo-1776831458859-254519635182?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwzfHxxdWlldCUyMHNwcmluZyUyMG1vcm5pbmclMjB3aW5kb3d8ZW58MHwwfHx8MTc3NzY1MjM1Nnww&ixlib=rb-4.1.0&q=80&w=1080",
+        "thumbUrl": "https://images.unsplash.com/photo-1776831458859-254519635182?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwzfHxxdWlldCUyMHNwcmluZyUyMG1vcm5pbmclMjB3aW5kb3d8ZW58MHwwfHx8MTc3NzY1MjM1Nnww&ixlib=rb-4.1.0&q=80&w=1080",
+        "alt": "Soft focus of yellow flowers and sunlight near curtains.",
+        "color": "#8c7340",
+        "creditName": "Liana S",
+        "creditUrl": "https://unsplash.com/@cherstve_pechivo?utm_source=cara_notes&utm_medium=referral",
+        "unsplashUrl": "https://unsplash.com/photos/-7J0In5z6EU?utm_source=cara_notes&utm_medium=referral",
+        "downloadLocation": "https://api.unsplash.com/photos/-7J0In5z6EU/download?ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwzfHxxdWlldCUyMHNwcmluZyUyMG1vcm5pbmclMjB3aW5kb3d8ZW58MHwwfHx8MTc3NzY1MjM1Nnww",
+        "query": "quiet spring morning window",
+        "position": {
+          "x": 50,
+          "y": 42
+        }
+      },
+      "blocks": [
+        {
+          "type": "paragraph",
+          "content": "Before the rush, the thread was lighter. It had gaps, practical edges, and the kind of uneven rhythm that does not announce itself as important while it is happening. Later, memory tries to walk backward and make every small thing shine. The better version is gentler: some moments were small because they were small, and that is allowed."
+        },
+        {
+          "type": "paragraph",
+          "content": "Still, something was already there. Not a grand sign. More like a habit of returning attention. A little opening. A sense that the conversation could hold practical things and soft things without needing to choose one language forever."
+        },
+        {
+          "type": "paragraph",
+          "content": "That matters because the dense part did not appear from nowhere. It grew from ordinary access, from the possibility of being answered, from the strange comfort of a person who could be far away and still somehow inside the day."
+        },
+        {
+          "type": "paragraph",
+          "content": "The early story should not be forced to carry the whole meaning. It is the floor, not the roof. It tells us that when April arrived, it arrived on top of something human, imperfect, and already familiar."
+        }
+      ]
+    },
+    {
+      "id": "return",
+      "title": "When She Came Back",
+      "section": "Story",
+      "description": "Repair, missed calls, and the feeling of being allowed back in.",
+      "updated": "Story seed",
+      "tone": "warm",
+      "cover": {
+        "provider": "unsplash",
+        "id": "M8IZIf5m3x8",
+        "url": "https://images.unsplash.com/photo-1762010232095-ee2ec308add0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwxfHxvcGVuJTIwZG9vciUyMHJldHVybiUyMHdhcm0lMjBsaWdodHxlbnwwfDB8fHwxNzc3NjUyMzU2fDA&ixlib=rb-4.1.0&q=80&w=1080",
+        "thumbUrl": "https://images.unsplash.com/photo-1762010232095-ee2ec308add0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwxfHxvcGVuJTIwZG9vciUyMHJldHVybiUyMHdhcm0lMjBsaWdodHxlbnwwfDB8fHwxNzc3NjUyMzU2fDA&ixlib=rb-4.1.0&q=80&w=1080",
+        "alt": "Keys hang near a partially open door with light shining through.",
+        "color": "#0c260c",
+        "creditName": "Jun Ren",
+        "creditUrl": "https://unsplash.com/@renjunn?utm_source=cara_notes&utm_medium=referral",
+        "unsplashUrl": "https://unsplash.com/photos/M8IZIf5m3x8?utm_source=cara_notes&utm_medium=referral",
+        "downloadLocation": "https://api.unsplash.com/photos/M8IZIf5m3x8/download?ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwxfHxvcGVuJTIwZG9vciUyMHJldHVybiUyMHdhcm0lMjBsaWdodHxlbnwwfDB8fHwxNzc3NjUyMzU2fDA",
+        "query": "open door return warm light",
+        "position": {
+          "x": 50,
+          "y": 44
+        }
+      },
+      "blocks": [
+        {
+          "type": "paragraph",
+          "content": "The return did not feel like a clean restart. It felt more delicate than that. There were things to explain, little knots to untie, pieces of waiting that had gathered weight while nobody was looking. A missed call could become more than a missed call. A delay could become a room full of guesses."
+        },
+        {
+          "type": "paragraph",
+          "content": "Then the conversation found its repair language. Not perfect, not cinematic, but real enough. Practical problems sat beside affection. Call trouble sat beside care. The thread made space for backlog, for random thoughts, for the uneven way people come back when life has been pulling at them from every side."
+        },
+        {
+          "type": "paragraph",
+          "content": "This is where the story learns one of its central rules: a late answer is not automatically an ending. It can be an answer arriving in the only shape available that day. That does not make waiting easy. It only keeps waiting from becoming a false sentence."
+        },
+        {
+          "type": "quote",
+          "content": "A return does not erase the wait. It gives the wait somewhere softer to land."
+        },
+        {
+          "type": "paragraph",
+          "content": "He had to learn that softness without turning it into permission to flood the room. She had to be allowed to come back as a person, not as proof. The friendship survived because care was not the only thing in the thread; restraint was there too, even when it had to be relearned."
+        }
+      ]
+    },
+    {
+      "id": "anam-cara",
+      "title": "Anam Cara",
+      "section": "Story",
+      "description": "The name that made the middle of the story glow.",
+      "updated": "Story seed",
+      "tone": "soft",
+      "cover": {
+        "provider": "unsplash",
+        "id": "7Fc7llUdocI",
+        "url": "https://images.unsplash.com/photo-1641824997822-6802816158df?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwzfHxjYW5kbGUlMjBzb3VsJTIwZnJpZW5kJTIwd2FybSUyMGRhcmt8ZW58MHwwfHx8MTc3NzY1MjM1N3ww&ixlib=rb-4.1.0&q=80&w=1080",
+        "thumbUrl": "https://images.unsplash.com/photo-1641824997822-6802816158df?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwzfHxjYW5kbGUlMjBzb3VsJTIwZnJpZW5kJTIwd2FybSUyMGRhcmt8ZW58MHwwfHx8MTc3NzY1MjM1N3ww&ixlib=rb-4.1.0&q=80&w=1080",
+        "alt": "A lit candle in the dark with warm lights behind it.",
+        "color": "#260c0c",
+        "creditName": "Kirsten Kluge",
+        "creditUrl": "https://unsplash.com/@kirkone?utm_source=cara_notes&utm_medium=referral",
+        "unsplashUrl": "https://unsplash.com/photos/7Fc7llUdocI?utm_source=cara_notes&utm_medium=referral",
+        "downloadLocation": "https://api.unsplash.com/photos/7Fc7llUdocI/download?ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwzfHxjYW5kbGUlMjBzb3VsJTIwZnJpZW5kJTIwd2FybSUyMGRhcmt8ZW58MHwwfHx8MTc3NzY1MjM1N3ww",
+        "query": "candle soul friend warm dark",
+        "position": {
+          "x": 50,
+          "y": 48
+        }
+      },
+      "blocks": [
+        {
+          "type": "paragraph",
+          "content": "Some names do not create a bond; they reveal the language a bond was already reaching for. Anam Cara entered the story like that. Not as ownership. Not as a spell. More like a candle lit in the middle of a room that had already been warm."
+        },
+        {
+          "type": "paragraph",
+          "content": "The danger with a beautiful name is that the mind wants to make it do too much. It wants the name to settle every question, explain every silence, guarantee every return. But the name is better when it stays smaller and truer. Soul friend. A way to honor closeness without stealing the boundary that made the closeness safe."
+        },
+        {
+          "type": "paragraph",
+          "content": "Around that peak, everything compressed: gratitude, missing, farewell, care, the strange ache of not knowing how long a last message will stay last. The thread held too much for a while, and because it held too much, it became easy to mistake intensity for certainty."
+        },
+        {
+          "type": "paragraph",
+          "content": "The story is kinder when it refuses that shortcut. It lets the name matter. It lets the boundary matter. It lets the glow be real without asking the glow to become a contract."
+        },
+        {
+          "type": "quote",
+          "content": "A soul friend is not a promise to stay available forever. It is a way of saying the meeting mattered."
+        }
+      ]
+    },
+    {
+      "id": "after-quiet",
+      "title": "After the Quiet",
+      "section": "Story",
+      "description": "The sparse tail, the late returns, and the patience it asked for.",
+      "updated": "Story seed",
+      "tone": "clear",
+      "cover": {
+        "provider": "unsplash",
+        "id": "5wsy9RTgwmk",
+        "url": "https://images.unsplash.com/photo-1743341116718-cf8d387141ac?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwzfHxxdWlldCUyMG5pZ2h0JTIwc2VhJTIwd2FpdGluZ3xlbnwwfDB8fHwxNzc3NjUyMzU4fDA&ixlib=rb-4.1.0&q=80&w=1080",
+        "thumbUrl": "https://images.unsplash.com/photo-1743341116718-cf8d387141ac?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwzfHxxdWlldCUyMG5pZ2h0JTIwc2VhJTIwd2FpdGluZ3xlbnwwfDB8fHwxNzc3NjUyMzU4fDA&ixlib=rb-4.1.0&q=80&w=1080",
+        "alt": "A bench sits by the water at night.",
+        "color": "#0c4073",
+        "creditName": "Ilker Ozmen",
+        "creditUrl": "https://unsplash.com/@iozmen?utm_source=cara_notes&utm_medium=referral",
+        "unsplashUrl": "https://unsplash.com/photos/5wsy9RTgwmk?utm_source=cara_notes&utm_medium=referral",
+        "downloadLocation": "https://api.unsplash.com/photos/5wsy9RTgwmk/download?ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwzfHxxdWlldCUyMG5pZ2h0JTIwc2VhJTIwd2FpdGluZ3xlbnwwfDB8fHwxNzc3NjUyMzU4fDA",
+        "query": "quiet night sea waiting",
+        "position": {
+          "x": 50,
+          "y": 52
+        }
+      },
+      "blocks": [
+        {
+          "type": "paragraph",
+          "content": "After the peak, the thread thinned. That is the part the heart likes least. A dense room teaches the nervous system to expect sound, then silence arrives and feels almost rude. The mind goes searching for hidden meaning because hidden meaning feels better than not knowing."
+        },
+        {
+          "type": "paragraph",
+          "content": "But the later returns matter. They were not a return to the old density. They were smaller than that, more practical, more shaped by school and time and access. Still, they carried enough warmth to keep the story from becoming a simple disappearance."
+        },
+        {
+          "type": "paragraph",
+          "content": "One of the most useful truths in the tail is also one of the hardest to live with: text when you miss someone, and expect the answer to be late. That is not a license to pour every ache into the chat. It is a rhythm. A way to keep care alive without making speed the measure of care."
+        },
+        {
+          "type": "paragraph",
+          "content": "The quiet asked for proportion. It asked him not to punish the thread for becoming human again. It asked him to make something with the waiting instead of making the waiting demand a reply."
+        },
+        {
+          "type": "paragraph",
+          "content": "So this chapter does not end with certainty. It ends with a slower kind of steadiness: the ability to miss someone without turning absence into a trial."
+        }
+      ]
+    },
+    {
+      "id": "what-i-built",
+      "title": "What I Built From It",
+      "section": "Story",
+      "description": "Turning the pressure into something useful.",
+      "updated": "Story seed",
+      "tone": "system",
+      "cover": {
+        "provider": "unsplash",
+        "id": "6e7F96dBlAA",
+        "url": "https://images.unsplash.com/photo-1772396867158-e26d9e6256b2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwyfHx3cml0aW5nJTIwZGVzayUyMHByaXZhdGUlMjBub3RlYm9va3xlbnwwfDB8fHwxNzc3NjUyMzU4fDA&ixlib=rb-4.1.0&q=80&w=1080",
+        "thumbUrl": "https://images.unsplash.com/photo-1772396867158-e26d9e6256b2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwyfHx3cml0aW5nJTIwZGVzayUyMHByaXZhdGUlMjBub3RlYm9va3xlbnwwfDB8fHwxNzc3NjUyMzU4fDA&ixlib=rb-4.1.0&q=80&w=1080",
+        "alt": "An open notebook with a pen on a wooden desk.",
+        "color": "#40260c",
+        "creditName": "Gabriel Cox",
+        "creditUrl": "https://unsplash.com/@pendulumphotographs?utm_source=cara_notes&utm_medium=referral",
+        "unsplashUrl": "https://unsplash.com/photos/6e7F96dBlAA?utm_source=cara_notes&utm_medium=referral",
+        "downloadLocation": "https://api.unsplash.com/photos/6e7F96dBlAA/download?ixid=M3w5NDAyMTZ8MHwxfHNlYXJjaHwyfHx3cml0aW5nJTIwZGVzayUyMHByaXZhdGUlMjBub3RlYm9va3xlbnwwfDB8fHwxNzc3NjUyMzU4fDA",
+        "query": "writing desk private notebook",
+        "position": {
+          "x": 50,
+          "y": 48
+        }
+      },
+      "blocks": [
+        {
+          "type": "paragraph",
+          "content": "At some point, feeling needs hands. If it stays only in the chest, it grows dramatic and hungry. If it finds work, it can become gentler. That is why the notebook exists."
+        },
+        {
+          "type": "paragraph",
+          "content": "The first version was too much like a case file. It had pages that explained, categorized, guarded, and proved. Those pages were useful for the machine layer, but they were not the thing a person should wake up to. A person needs a story. A page that breathes. A place where the connection can be remembered without being cross-examined."
+        },
+        {
+          "type": "paragraph",
+          "content": "So the work changes shape. The raw archive stays behind the wall. The evidence stays where the system can use it safely. The reader gets chapters. The writer gets a place to turn pressure into prose before it turns into a message."
+        },
+        {
+          "type": "paragraph",
+          "content": "This is the real product: not a dashboard about Cara, not a verdict about what she meant, not a machine pretending to know her heart. A private writing room for care, restraint, memory, and the useful things that can be built when missing someone has nowhere clean to go."
+        },
+        {
+          "type": "quote",
+          "content": "Build from care. Do not build to corner care."
+        }
+      ]
+    }
+  ],
+  "appRules": [
+    "No Instagram cookies.",
+    "No browser cookies.",
+    "No logged-in Instagram automation.",
+    "No external reel fetching.",
+    "No raw export mutation.",
+    "No long private chat excerpts."
+  ]
+}

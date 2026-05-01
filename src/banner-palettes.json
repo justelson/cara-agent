@@ -1,0 +1,76 @@
+{
+  "palettes": [
+    {
+      "name": "soft dawn",
+      "from": 109,
+      "hint": 145,
+      "art": [218, 224, 217, 181, 109]
+    },
+    {
+      "name": "sea glass",
+      "from": 116,
+      "hint": 245,
+      "art": [158, 122, 116, 153, 109]
+    },
+    {
+      "name": "warm terminal",
+      "from": 180,
+      "hint": 245,
+      "art": [222, 216, 209, 180, 174]
+    },
+    {
+      "name": "orchid",
+      "from": 183,
+      "hint": 245,
+      "art": [219, 218, 183, 147, 111]
+    },
+    {
+      "name": "paper lantern",
+      "from": 223,
+      "hint": 245,
+      "art": [230, 223, 217, 181, 145]
+    },
+    {
+      "name": "blue hour",
+      "from": 110,
+      "hint": 245,
+      "art": [153, 117, 111, 105, 141]
+    },
+    {
+      "name": "tiny garden",
+      "from": 151,
+      "hint": 245,
+      "art": [229, 193, 157, 151, 109]
+    },
+    {
+      "name": "berry milk",
+      "from": 181,
+      "hint": 245,
+      "art": [225, 219, 218, 181, 145]
+    },
+    {
+      "name": "quiet fire",
+      "from": 174,
+      "hint": 245,
+      "art": [215, 209, 203, 174, 138]
+    },
+    {
+      "name": "mint ink",
+      "from": 152,
+      "hint": 245,
+      "art": [195, 159, 152, 116, 110]
+    },
+    {
+      "name": "lilac rain",
+      "from": 147,
+      "hint": 245,
+      "art": [225, 183, 147, 111, 109]
+    },
+    {
+      "name": "honey dusk",
+      "from": 180,
+      "hint": 245,
+      "art": [229, 222, 216, 180, 144]
+    }
+  ]
+}
