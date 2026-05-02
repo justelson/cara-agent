@@ -90,7 +90,15 @@ export function createCaraUi(options = {}) {
   }
 
   function streamAssistant(content) {
-    const next = extractAssistantContent(content);
+    const next = normalizeAssistantContent(extractAssistantContent(content), streamingAssistantContent);
+    if (!hasAssistantContent(next)) return;
+    beginAssistant();
+    streamingAssistantContent = next;
+    requestInputRender();
+  }
+
+  function streamAssistantEvent(event) {
+    const next = extractAssistantEventContent(event, streamingAssistantContent);
     if (!hasAssistantContent(next)) return;
     beginAssistant();
     streamingAssistantContent = next;
@@ -228,7 +236,10 @@ export function createCaraUi(options = {}) {
       if (event.type === "message_start" && event.message?.role === "assistant") {
         beginAssistant();
       }
-      if (event.type === "message_update" && event.message?.role === "assistant") return;
+      if (event.type === "message_update" && event.message?.role === "assistant") {
+        streamAssistantEvent(event);
+        return;
+      }
       if (event.type === "tool_execution_start") tool(event, "running");
       if (event.type === "tool_execution_update") tool(event, "running");
       if (event.type === "tool_execution_end") tool(event, event.isError ? "error" : "done");
@@ -257,6 +268,9 @@ export function createCaraUi(options = {}) {
         },
         getTransientLines() {
           const lines = [];
+          if (assistantOpen && hasAssistantContent(streamingAssistantContent)) {
+            lines.push(...formatAssistantPreview(streamingAssistantContent, theme));
+          }
           for (const toolState of activeTools.values()) {
             lines.push(...renderToolBlock(toolState, theme));
           }
@@ -510,6 +524,28 @@ function hasAssistantContent(content) {
 function normalizeAssistantContent(primary, fallback) {
   if (hasAssistantContent(primary)) return primary;
   return fallback;
+}
+
+function extractAssistantEventContent(event, current = emptyAssistantContent()) {
+  const messageContent = extractAssistantContent(event.message?.content);
+  const partialContent = extractAssistantContent(event.assistantMessageEvent?.partial?.content);
+  const next = longerAssistantContent(messageContent, partialContent, current);
+
+  if (hasAssistantContent(next) && next !== current) return next;
+
+  const delta = event.assistantMessageEvent;
+  if (delta?.type === "text_delta" && typeof delta.delta === "string" && delta.delta.length > 0) {
+    return { ...current, text: `${current.text}${delta.delta}` };
+  }
+
+  return next;
+}
+
+function longerAssistantContent(...contents) {
+  return contents.reduce((best, content) => {
+    if (!hasAssistantContent(content)) return best;
+    return content.text.length > best.text.length ? content : best;
+  }, emptyAssistantContent());
 }
 
 function assistantContentKey(content) {
