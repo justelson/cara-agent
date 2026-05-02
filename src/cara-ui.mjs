@@ -31,6 +31,7 @@ export function createCaraUi(options = {}) {
   let clearInput = () => {};
   let renderTimer = undefined;
   let suppressWorking = false;
+  let activityLabel = "";
 
   function write(text = "") {
     output.write(text);
@@ -85,6 +86,7 @@ export function createCaraUi(options = {}) {
   function beginAssistant() {
     if (assistantOpen) return;
     suppressWorking = false;
+    activityLabel = "thinking";
     assistantOpen = true;
     streamingAssistantContent = emptyAssistantContent();
   }
@@ -93,6 +95,7 @@ export function createCaraUi(options = {}) {
     const next = normalizeAssistantContent(extractAssistantContent(content), streamingAssistantContent);
     if (!hasAssistantContent(next)) return;
     beginAssistant();
+    activityLabel = "writing";
     streamingAssistantContent = next;
     requestInputRender();
   }
@@ -101,6 +104,7 @@ export function createCaraUi(options = {}) {
     const next = extractAssistantEventContent(event, streamingAssistantContent);
     if (!hasAssistantContent(next)) return;
     beginAssistant();
+    activityLabel = activityFromAssistantEvent(event);
     streamingAssistantContent = next;
     requestInputRender();
   }
@@ -111,6 +115,7 @@ export function createCaraUi(options = {}) {
     const finalKey = assistantContentKey(finalContent);
     streamingAssistantContent = emptyAssistantContent();
     assistantOpen = false;
+    activityLabel = "writing";
     suppressWorking = true;
     if (!finalKey || finalKey === lastAssistantText) {
       renderInput();
@@ -136,6 +141,7 @@ export function createCaraUi(options = {}) {
 
     if (state === "running") {
       suppressWorking = false;
+      activityLabel = `using ${formatToolActivity(next.toolName)}`;
       activeTools.set(toolCallId, next);
       requestInputRender();
       return;
@@ -143,6 +149,7 @@ export function createCaraUi(options = {}) {
 
     cancelInputRender();
     activeTools.delete(toolCallId);
+    activityLabel = activeTools.size > 0 ? `using ${formatToolActivity(activeTools.values().next().value?.toolName)}` : "thinking";
     print(renderToolBlock(next, theme).join("\n"));
   }
 
@@ -226,11 +233,13 @@ export function createCaraUi(options = {}) {
       if (event.type === "turn_start") {
         isBusy = true;
         suppressWorking = false;
+        activityLabel = "thinking";
         flushInputRender();
       }
       if (event.type === "turn_end") {
         isBusy = false;
         suppressWorking = false;
+        activityLabel = "";
         flushInputRender();
       }
       if (event.type === "message_start" && event.message?.role === "assistant") {
@@ -247,9 +256,11 @@ export function createCaraUi(options = {}) {
         finishAssistant(event.message.content);
       }
       if (event.type === "auto_retry_start") {
+        activityLabel = "retrying";
         line(`${theme.warning}retry${reset} ${event.attempt}/${event.maxAttempts}: ${event.errorMessage}`);
       }
       if (event.type === "compaction_start") {
+        activityLabel = "compacting";
         line(`${theme.warning}compact${reset} ${event.reason}`);
       }
     },
@@ -262,6 +273,7 @@ export function createCaraUi(options = {}) {
     async interactive(onInput, options = {}) {
       await runTerminalInputLoop(onInput, { ...options, theme: options.theme ?? theme }, {
         getBusy: () => isBusy,
+        getActivityLabel: () => activityLabel,
         suppressWorking: () => suppressWorking,
         hasTransientLines() {
           return Boolean((assistantOpen && hasAssistantContent(streamingAssistantContent)) || activeTools.size > 0);
@@ -329,6 +341,24 @@ function summarizeTool(event) {
   const keys = Object.keys(args).filter((key) => args[key] !== undefined && args[key] !== null);
   if (keys.length === 0) return "";
   return keys.slice(0, 3).join(", ");
+}
+
+function activityFromAssistantEvent(event) {
+  const update = event.assistantMessageEvent;
+  if (update?.type === "thinking_start" || update?.type === "thinking_delta") return "thinking";
+  if (update?.type === "text_start" || update?.type === "text_delta" || hasAssistantContent(extractAssistantContent(event.message?.content))) {
+    return "writing";
+  }
+  if (update?.type === "toolcall_start" || update?.type === "toolcall_delta") return "working";
+  return "thinking";
+}
+
+function formatToolActivity(value) {
+  return String(value ?? "tool")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase() || "tool";
 }
 
 function truncate(text, max) {

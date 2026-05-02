@@ -123,8 +123,9 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
       }
     }
     lines.push(...menuLines);
+    const activityLabel = controls.getActivityLabel?.() || (waiting ? "sending" : "working");
     const statusLine = options.statusLine?.(liveWidth, {
-      activity: isBusy ? renderWorkingStatus(busyStartedAt, busyFrame, theme) : "",
+      activity: isBusy ? renderWorkingStatus(busyStartedAt, busyFrame, theme, activityLabel) : "",
     });
     if (statusLine) {
       lines.push(`${theme.muted}${statusLine}${reset}`);
@@ -444,10 +445,14 @@ function isBlankLine(line) {
   return stripAnsi(line).trim().length === 0;
 }
 
-function renderWorkingStatus(startedAt, frame, theme = buildTerminalTheme()) {
+function renderWorkingStatus(startedAt, frame, theme = buildTerminalTheme(), label = "working") {
   const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
   const dots = ".".repeat((frame % 3) + 1);
-  return `${bold}${shimmerText(`${elapsed}s working${dots}`, frame, theme)}${reset}${theme.muted}`;
+  return `${bold}${shimmerText(`${elapsed}s ${cleanActivityLabel(label)}${dots}`, frame, theme)}${reset}${theme.muted}`;
+}
+
+function cleanActivityLabel(value) {
+  return String(value ?? "working").replace(/\s+/g, " ").trim() || "working";
 }
 
 function shimmerText(text, frame, theme = buildTerminalTheme()) {
