@@ -370,15 +370,10 @@ function formatAssistantPreview(content, theme = fallbackTheme) {
 
   if (text) {
     const renderedText = trimOuterBlankLines(renderMarkdown(text, width)).map((line) => assistantLine(line, theme));
-    lines.push(...takeTail(renderedText, 8, theme));
+    lines.push(...renderedText);
   }
 
   return lines;
-}
-
-function takeTail(lines, maxLines, theme = fallbackTheme) {
-  if (lines.length <= maxLines) return lines;
-  return [assistantLine(`${theme.muted}...${reset}`, theme), ...lines.slice(-maxLines)];
 }
 
 function renderToolBlock(toolState, theme = fallbackTheme) {
