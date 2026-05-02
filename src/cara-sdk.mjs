@@ -2,12 +2,14 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { normalizeOpeningTheme, pickOpeningTheme } from "./banner.mjs";
+import { buildConsolidationPrompt, buildLayeredMemoryPrompt, buildMemoryOverview, ensureCaraMemory } from "./cara-memory.mjs";
 
 const PI_ROOT = path.resolve("C:/Users/elson/my_coding_play/play projects/pi");
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CARA_THEME_CUSTOM_TYPE = "cara.theme.v1";
 const CARA_EXIT_CUSTOM_TYPE = "cara.exit.v1";
 const CARA_PROJECT_MEMORY_MARKER = "CARA_PROJECT_MEMORY";
+const CARA_LAYERED_MEMORY_MARKER = "CARA_LAYERED_MEMORY";
 
 export const defaults = {
   piRoot: PI_ROOT,
@@ -82,12 +84,15 @@ export async function createCaraSession(options = {}) {
   });
 
   injectCaraGuide(result.session, readPrompt(defaults.prompt));
+  ensureCaraMemory(ROOT);
+  injectLayeredMemory(result.session, ROOT);
   const projectMemory = injectProjectMemory(result.session, project);
 
   await preferDefaultModel(result.session, options.model ?? defaults.model);
 
   return {
     session: result.session,
+    root: ROOT,
     project,
     sessions,
     theme,
@@ -205,10 +210,15 @@ export function describeRuntime(runtime) {
     sessionName: sessionManager.getSessionName?.(),
     usage,
     projectMemory: runtime.projectMemory ?? [],
+    memoryOverview: buildMemoryOverview(defaults.root),
     customCommands: listCustomCommands(runtime),
     thinking: runtime.session.thinkingLevel,
     model: model ? `${model.provider}/${model.id}` : "none",
   };
+}
+
+export function buildCaraConsolidationPrompt(runtime) {
+  return buildConsolidationPrompt({ ...runtime, root: defaults.root }, findProjectMemoryFiles(runtime.project));
 }
 
 export function listCustomCommands(runtime) {
@@ -372,6 +382,17 @@ function injectProjectMemory(session, project) {
     : `${currentBase}${addition}`;
   session.agent.state.systemPrompt = session._baseSystemPrompt;
   return files.map((file) => formatRelative(project, file));
+}
+
+function injectLayeredMemory(session, root) {
+  const memory = buildLayeredMemoryPrompt(root);
+  if (!memory) return;
+  const addition = `\n\n<${CARA_LAYERED_MEMORY_MARKER}>\n${memory}\n</${CARA_LAYERED_MEMORY_MARKER}>`;
+  const currentBase = session._baseSystemPrompt ?? session.agent.state.systemPrompt ?? "";
+  session._baseSystemPrompt = currentBase.includes(`<${CARA_LAYERED_MEMORY_MARKER}>`)
+    ? currentBase.replace(new RegExp(`\\n\\n<${CARA_LAYERED_MEMORY_MARKER}>[\\s\\S]*?</${CARA_LAYERED_MEMORY_MARKER}>`), addition)
+    : `${currentBase}${addition}`;
+  session.agent.state.systemPrompt = session._baseSystemPrompt;
 }
 
 function findProjectMemoryFiles(project) {

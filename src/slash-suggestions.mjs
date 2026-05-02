@@ -6,8 +6,8 @@ const COMMANDS = [
   { value: "/thinking", label: "/thinking", description: "cycle or set thinking effort", kind: "command" },
   { value: "/models", label: "/models", description: "open model picker", kind: "command" },
   { value: "/sessions", label: "/sessions", description: "show local chats", kind: "command", submitOnEnter: true },
-  { value: "/memory", label: "/memory", description: "project memory and custom commands", kind: "command", submitOnEnter: true },
-  { value: "/touch", label: "/touch", description: "Cara voice and product map", kind: "command", submitOnEnter: true },
+  { value: "/memory", label: "/memory", description: "summarize what Cara memory knows", kind: "command", submitOnEnter: true },
+  { value: "/consolidate", label: "/consolidate", description: "clean and update Cara memory layers", kind: "command", submitOnEnter: true },
   { value: "/exit", label: "/exit", description: "leave", kind: "command", submitOnEnter: true },
 ];
 

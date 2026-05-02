@@ -2,6 +2,7 @@
 import path from "node:path";
 import {
   buildInspectPrompt,
+  buildCaraConsolidationPrompt,
   checkSetup,
   createCaraSession,
   defaults,
@@ -213,8 +214,8 @@ async function handleSlash(runtime, ui, input) {
     ui.memory(describeRuntime(runtime));
     return true;
   }
-  if (command === "/touch") {
-    ui.touch(defaults.root);
+  if (command === "/consolidate") {
+    await runCaraPrompt(runtime, buildCaraConsolidationPrompt(runtime));
     return true;
   }
   if (command === "/sessions" || command === "/chats") {

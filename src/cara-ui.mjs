@@ -1,7 +1,6 @@
 import { stdout as output } from "node:process";
 import { readFileSync } from "node:fs";
 import { renderOpeningBanner } from "./banner.mjs";
-import { buildTouchBrief } from "./cara-touch.mjs";
 import { renderMarkdown } from "./pi-markdown.mjs";
 import { runTerminalInputLoop } from "./terminal-input.mjs";
 import { buildTerminalTheme } from "./terminal-theme.mjs";
@@ -155,8 +154,8 @@ export function createCaraUi(options = {}) {
   /models               open model picker
   /models <provider/model>
   /sessions             show local chats
-  /memory               show loaded project memory
-  /touch                show Cara's product/voice map
+  /memory               summarize what Cara memory knows
+  /consolidate          clean and update Cara memory layers
   /<custom>             run .cara/commands/<custom>.md
   /exit                 leave`);
     },
@@ -172,14 +171,18 @@ export function createCaraUi(options = {}) {
       if (status.customCommands?.length) note("commands", status.customCommands.map((command) => `/${command.name}`).join(", "));
     },
     memory(status) {
-      line(`${bold}Project memory${reset}`);
-      const memory = status.projectMemory ?? [];
+      const overview = status.memoryOverview ?? ["What I know about Cara", "  Nothing stable yet."];
       const commands = status.customCommands ?? [];
-      if (!memory.length) {
-        line(`${theme.muted}  No AGENTS.md files loaded for this project.${reset}`);
-      } else {
-        for (const file of memory) line(`  ${theme.success}${file}${reset}`);
+      for (const memoryLine of overview) {
+        if (!memoryLine) {
+          line("");
+        } else if (!memoryLine.startsWith("  ") && !memoryLine.startsWith("- ")) {
+          line(`${bold}${theme.primary}${memoryLine}${reset}`);
+        } else {
+          line(`${theme.muted}${memoryLine}${reset}`);
+        }
       }
+      line("");
       line(`${bold}Custom commands${reset}`);
       if (!commands.length) {
         line(`${theme.muted}  Add markdown commands in .cara/commands/*.md.${reset}`);
@@ -187,11 +190,6 @@ export function createCaraUi(options = {}) {
         for (const command of commands) {
           line(`  ${theme.success}/${command.name}${reset} ${theme.muted}${command.description}${reset}`);
         }
-      }
-    },
-    touch(root) {
-      for (const touchLine of buildTouchBrief(root)) {
-        line(touchLine === "Cara touch map" ? `${bold}${theme.primary}${touchLine}${reset}` : `${theme.muted}${touchLine}${reset}`);
       }
     },
     sessions(sessions) {
