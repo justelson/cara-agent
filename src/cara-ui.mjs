@@ -31,6 +31,9 @@ export function createCaraUi(options = {}) {
   let clearInput = () => {};
   let renderTimer = undefined;
   let suppressWorking = false;
+  let assistantAnimation = Promise.resolve();
+  let assistantAnimating = false;
+  let pendingInputRender = false;
 
   function write(text = "") {
     output.write(text);
@@ -43,11 +46,16 @@ export function createCaraUi(options = {}) {
   function print(text = "") {
     if (inputActive) clearInput();
     write(text);
-    if (inputActive) renderInput();
+    if (inputActive && !assistantAnimating) renderInput();
+    if (inputActive && assistantAnimating) pendingInputRender = true;
   }
 
   function requestInputRender() {
     if (!inputActive) return;
+    if (assistantAnimating) {
+      pendingInputRender = true;
+      return;
+    }
     if (renderTimer) return;
     renderTimer = setTimeout(() => {
       renderTimer = undefined;
@@ -56,6 +64,10 @@ export function createCaraUi(options = {}) {
   }
 
   function flushInputRender() {
+    if (assistantAnimating) {
+      pendingInputRender = true;
+      return;
+    }
     if (renderTimer) {
       clearTimeout(renderTimer);
       renderTimer = undefined;
@@ -108,8 +120,46 @@ export function createCaraUi(options = {}) {
       renderInput();
       return;
     }
-    print(`${formatAssistantContent(finalContent, theme).join("\n")}\n`);
+    writeAssistantMessage(`${formatAssistantContent(finalContent, theme).join("\n")}\n`);
     lastAssistantText = finalKey;
+  }
+
+  function writeAssistantMessage(text) {
+    if (!inputActive || !shouldAnimateAssistant(text)) {
+      print(text);
+      return;
+    }
+
+    assistantAnimation = assistantAnimation
+      .then(() => animateAssistantMessage(text))
+      .catch(() => {
+        assistantAnimating = false;
+        print(text);
+      });
+  }
+
+  async function animateAssistantMessage(text) {
+    cancelInputRender();
+    assistantAnimating = true;
+    pendingInputRender = false;
+    if (inputActive) clearInput();
+
+    let visibleSincePause = 0;
+    for (const token of streamTokens(text)) {
+      write(token);
+      if (isAnsi(token)) continue;
+      visibleSincePause += 1;
+      if (visibleSincePause >= streamChunkSize(token)) {
+        visibleSincePause = 0;
+        await sleep(streamDelay(token));
+      }
+    }
+
+    assistantAnimating = false;
+    if (inputActive || pendingInputRender) {
+      pendingInputRender = false;
+      renderInput();
+    }
   }
 
   function tool(event, state) {
@@ -414,6 +464,36 @@ function formatToolValue(value) {
 
 function splitDisplayLines(text) {
   return String(text).split(/\r?\n/).filter((line) => line.trim().length > 0);
+}
+
+function shouldAnimateAssistant(text) {
+  return Boolean(output.isTTY && text.length > 24 && process.env.CARA_STREAM_EFFECT !== "0");
+}
+
+function streamTokens(text) {
+  return String(text).match(/\x1b\[[0-?]*[ -/]*[@-~]|[\s\S]/g) ?? [];
+}
+
+function isAnsi(token) {
+  return /^\x1b\[[0-?]*[ -/]*[@-~]$/.test(token);
+}
+
+function streamChunkSize(token) {
+  if (token === "\n") return 1;
+  if (/[.!?]/.test(token)) return 5;
+  if (/[,;:]/.test(token)) return 8;
+  return 3;
+}
+
+function streamDelay(token) {
+  if (token === "\n") return 12;
+  if (/[.!?]/.test(token)) return 22;
+  if (/[,;:]/.test(token)) return 16;
+  return 8;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function trimOuterBlankLines(lines) {
