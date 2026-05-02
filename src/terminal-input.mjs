@@ -87,9 +87,10 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
 
   const render = () => {
     const liveWidth = Math.max(24, (output.columns ?? 100) - 1);
-    const isBusy = (controls.getBusy() || waiting) && !controls.suppressWorking?.();
-    if (isBusy && !busyStartedAt) busyStartedAt = Date.now();
-    if (!isBusy) busyStartedAt = 0;
+    const turnActive = controls.getBusy() || waiting;
+    const isBusy = turnActive && !controls.suppressWorking?.();
+    if (turnActive && !busyStartedAt) busyStartedAt = Date.now();
+    if (!turnActive) busyStartedAt = 0;
     const prompt = `${theme.primary}>${fgReset} `;
     const suggestions = suggestionsFor(buffer);
     if (selectedIndex >= suggestions.length) selectedIndex = 0;
