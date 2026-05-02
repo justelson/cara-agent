@@ -208,6 +208,7 @@ export function createCaraUi(options = {}) {
   /sessions             show local chats
   /memory               summarize what Cara memory knows
   /consolidate          clean and update Cara memory layers
+  /reload               reload custom slash commands
   /<custom>             run .cara/commands/<custom>.md
   /exit                 leave`);
     },

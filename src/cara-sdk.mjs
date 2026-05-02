@@ -13,6 +13,7 @@ const CARA_PROJECT_MEMORY_MARKER = "CARA_PROJECT_MEMORY";
 const CARA_LAYERED_MEMORY_MARKER = "CARA_LAYERED_MEMORY";
 const CARA_PROFILE_CUSTOM_TYPE = "cara.profile.v1";
 const CARA_PROFILE_MARKER = "CARA_ACTIVE_PROFILE";
+const commandCache = new Map();
 
 export const defaults = {
   piRoot: PI_ROOT,
@@ -291,6 +292,10 @@ export function buildCaraConsolidationPrompt(runtime) {
 }
 
 export function listCustomCommands(runtime) {
+  const cacheKey = commandCacheKey(runtime);
+  const cached = commandCache.get(cacheKey);
+  if (cached) return cached;
+
   const dirs = getCustomCommandDirs(runtime);
   const commands = [];
   for (const dir of dirs) {
@@ -307,7 +312,21 @@ export function listCustomCommands(runtime) {
       });
     }
   }
-  return dedupeCommands(commands);
+  const result = dedupeCommands(commands);
+  commandCache.set(cacheKey, result);
+  return result;
+}
+
+export function reloadCustomCommands(runtime) {
+  commandCache.delete(commandCacheKey(runtime));
+  return listCustomCommands(runtime);
+}
+
+export function getCustomCommandScopes(runtime) {
+  return getCustomCommandDirs(runtime).map((dir) => ({
+    dir,
+    scope: path.resolve(dir) === path.resolve(path.join(defaults.root, "commands")) ? "global" : "project",
+  }));
 }
 
 export function loadCustomCommand(runtime, commandName, args = "") {
@@ -496,6 +515,10 @@ function getCustomCommandDirs(runtime) {
     path.join(defaults.root, "commands"),
     path.join(runtime.project, ".cara", "commands"),
   ];
+}
+
+function commandCacheKey(runtime) {
+  return getCustomCommandDirs(runtime).map((dir) => path.resolve(dir).toLowerCase()).join("|");
 }
 
 function extractCommandDescription(text) {

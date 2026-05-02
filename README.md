@@ -36,6 +36,7 @@ Available controls are intentionally small:
 - show or switch the active profile with `/profile`, `/profile elson`, `/profile cara`, or `/profile auto`
 - summarize what the agent knows about Cara with `/memory`
 - clean and update Cara memory layers with `/consolidate`
+- reload custom slash commands with `/reload`
 - run markdown commands from `commands/*.md` or `<project>\.cara\commands\*.md`
 - exit
 
@@ -49,8 +50,9 @@ The active profile defaults to `elson` on Elson's Windows account and `cara` eve
 
 Use `/consolidate` after meaningful sessions. It asks the agent to clean the memory layers, move stable learnings into the right files, remove vague or duplicate notes, and carefully tighten `AGENTS.md` guidance when the way the agent should behave has changed.
 
-The starter workflow commands are:
+Custom commands are not prefilled by default. They are meant to grow from repeated real workflows. If Cara keeps doing the same process, the agent can suggest saving it as a slash command. Use:
 
-- `/second-look`
-- `/repair-render`
-- `/archive-ground`
+- `commands\<name>.md` for global Cara CLI commands
+- `<project>\.cara\commands\<name>.md` for project-local commands
+
+Run `/reload` after adding or editing command files.

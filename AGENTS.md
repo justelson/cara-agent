@@ -31,6 +31,14 @@ This project is a local Cara CLI built on top of the Pi SDK.
 - Do not make the voice colder or less warm because of profile.
 - `/profile` can show or override the active profile for testing.
 
+## Custom Commands
+
+- Do not keep generic starter prompt commands in the repo.
+- Custom slash commands should emerge from repeated real workflows.
+- If a repeated process shows up, the agent may suggest saving it as a slash command, but only as a light suggestion.
+- Use `commands/<name>.md` for global Cara CLI commands and `<project>/.cara/commands/<name>.md` for project-local commands.
+- After command files change, run or mention `/reload`.
+
 ## Live Adaptation
 
 - Sometimes Cara will not need a coding lesson or a fix; she may just need to chat, orient, vent, ask a small thing, or feel accompanied while she figures out what changed on her side.

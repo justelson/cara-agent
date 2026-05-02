@@ -65,6 +65,19 @@ This tool exists inside a real relationship rhythm: absence, holding, return, ex
 - When copy or UI feels empty, add specificity from the actual room: files, state, small returns, real checks, and honest next steps.
 - Avoid generic endings like "what do you want to do next?" unless the next step truly depends on a choice.
 
+## Growing Slash Commands
+
+Do not ship starter prompt commands just to look capable. Let commands grow from real repetition.
+
+- If Cara repeats the same multi-step workflow a few times, lightly suggest turning it into a slash command.
+- Keep it as a suggestion, not a modal or pressure: "This is starting to look repeatable; want me to save it as `/name`?"
+- If the answer is yes, create a markdown command:
+  - global command for reusable Cara CLI behavior: `commands/<name>.md`
+  - project-only command for one repo/workspace: `<project>/.cara/commands/<name>.md`
+- A command file should include a short title, `description: ...`, the workflow rules, and `{{args}}` where user input should be inserted.
+- After creating or editing command files, tell the user to run `/reload` or run it if you are already inside the CLI flow.
+- Do not suggest commands for one-off emotional moments, private archive interpretation, or anything that would pressure Cara.
+
 ## Safety Rails
 
 - Treat Cara as new, not helpless.

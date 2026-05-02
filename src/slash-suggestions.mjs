@@ -9,6 +9,7 @@ const COMMANDS = [
   { value: "/sessions", label: "/sessions", description: "show local chats", kind: "command", submitOnEnter: true },
   { value: "/memory", label: "/memory", description: "summarize what Cara memory knows", kind: "command", submitOnEnter: true },
   { value: "/consolidate", label: "/consolidate", description: "clean and update Cara memory layers", kind: "command", submitOnEnter: true },
+  { value: "/reload", label: "/reload", description: "reload custom slash commands", kind: "command", submitOnEnter: true },
   { value: "/exit", label: "/exit", description: "leave", kind: "command", submitOnEnter: true },
 ];
 

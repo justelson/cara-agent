@@ -9,6 +9,7 @@ import {
   describeRuntime,
   loadCustomCommand,
   listCaraSessions,
+  reloadCustomCommands,
   runCaraPrompt,
   saveCaraExitSummary,
   setModel,
@@ -222,6 +223,11 @@ async function handleSlash(runtime, ui, input) {
   }
   if (command === "/memory") {
     ui.memory(describeRuntime(runtime));
+    return true;
+  }
+  if (command === "/reload") {
+    const commands = reloadCustomCommands(runtime);
+    ui.info(`Reloaded ${commands.length} custom command${commands.length === 1 ? "" : "s"}.`);
     return true;
   }
   if (command === "/consolidate") {
