@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { buildTerminalTheme } from "./terminal-theme.mjs";
 
 const normalIntensity = "\x1b[22m";
+const bold = "\x1b[1m";
 const fgReset = "\x1b[39m";
 const inverse = "\x1b[7m";
 const reset = "\x1b[0m";
@@ -123,7 +124,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     }
     lines.push(...menuLines);
     const statusLine = options.statusLine?.(liveWidth, {
-      activity: isBusy ? renderWorkingStatus(busyStartedAt, busyFrame) : "",
+      activity: isBusy ? renderWorkingStatus(busyStartedAt, busyFrame, theme) : "",
     });
     if (statusLine) {
       lines.push(`${theme.muted}${statusLine}${reset}`);
@@ -443,10 +444,22 @@ function isBlankLine(line) {
   return stripAnsi(line).trim().length === 0;
 }
 
-function renderWorkingStatus(startedAt, frame) {
+function renderWorkingStatus(startedAt, frame, theme = buildTerminalTheme()) {
   const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
   const dots = ".".repeat((frame % 3) + 1);
-  return `${elapsed}s working${dots}`;
+  return `${bold}${shimmerText(`${elapsed}s working${dots}`, frame, theme)}${reset}${theme.muted}`;
+}
+
+function shimmerText(text, frame, theme = buildTerminalTheme()) {
+  const chars = Array.from(text);
+  const shimmerIndex = frame % Math.max(1, chars.length);
+  return chars
+    .map((char, index) => {
+      const distance = Math.abs(index - shimmerIndex);
+      const color = distance === 0 ? theme.warning : distance === 1 ? theme.accent : theme.primary;
+      return `${color}${char}`;
+    })
+    .join("");
 }
 
 function renderEditorLines({ prompt, text = "", placeholder = "message..." }, width = Math.max(24, (output.columns ?? 100) - 1), theme = buildTerminalTheme()) {

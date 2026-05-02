@@ -18,9 +18,9 @@ export function renderStatusLine(runtime, width = Math.max(24, (process.stdout.c
   const maxWidth = Math.max(24, width);
   const modelStatus = `${modelLabel} ${thinking}${sep}${profile}`;
   const left = activity ? ` ${modelStatus}${sep}${activity}` : ` ${modelStatus}`;
-  const rightBudget = Math.max(8, maxWidth - left.length - 1);
+  const rightBudget = Math.max(8, maxWidth - visibleWidth(left) - 1);
   const right = buildRightStatus(context, cwd, cost, rightBudget);
-  const gap = Math.max(1, maxWidth - left.length - right.length);
+  const gap = Math.max(1, maxWidth - visibleWidth(left) - visibleWidth(right));
   return truncateToWidth(`${left}${" ".repeat(gap)}${right}`, maxWidth, "...");
 }
 
@@ -63,4 +63,12 @@ function formatPath(cwd) {
   }
 
   return display.split(path.sep).join("\\");
+}
+
+function visibleWidth(value) {
+  return stripAnsi(String(value ?? "")).length;
+}
+
+function stripAnsi(value) {
+  return value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 }
