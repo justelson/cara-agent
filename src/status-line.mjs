@@ -9,13 +9,14 @@ export function renderStatusLine(runtime, width = Math.max(24, (process.stdout.c
   const model = session.model;
   const modelLabel = model?.id ?? "no-model";
   const thinking = session.thinkingLevel ?? "off";
+  const profile = runtime.profile ?? "auto";
   const activity = String(state.activity ?? "").trim();
   const context = formatContext(session);
   const cwd = formatPath(session.sessionManager.getCwd());
   const cost = formatCost(session);
 
   const maxWidth = Math.max(24, width);
-  const modelStatus = `${modelLabel} ${thinking}`;
+  const modelStatus = `${modelLabel} ${thinking}${sep}${profile}`;
   const left = activity ? ` ${modelStatus}${sep}${activity}` : ` ${modelStatus}`;
   const rightBudget = Math.max(8, maxWidth - left.length - 1);
   const right = buildRightStatus(context, cwd, cost, rightBudget);

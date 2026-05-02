@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { normalizeOpeningTheme, pickOpeningTheme } from "./banner.mjs";
@@ -10,6 +11,8 @@ const CARA_THEME_CUSTOM_TYPE = "cara.theme.v1";
 const CARA_EXIT_CUSTOM_TYPE = "cara.exit.v1";
 const CARA_PROJECT_MEMORY_MARKER = "CARA_PROJECT_MEMORY";
 const CARA_LAYERED_MEMORY_MARKER = "CARA_LAYERED_MEMORY";
+const CARA_PROFILE_CUSTOM_TYPE = "cara.profile.v1";
+const CARA_PROFILE_MARKER = "CARA_ACTIVE_PROFILE";
 
 export const defaults = {
   piRoot: PI_ROOT,
@@ -76,6 +79,7 @@ export async function createCaraSession(options = {}) {
     noSession: options.noSession,
   });
   const theme = ensureSessionTheme(sessionManager, { persist: !options.noSession });
+  const profile = ensureSessionProfile(sessionManager, { persist: !options.noSession, requested: options.profile });
   const result = await createAgentSession({
     cwd: sessionManager.getCwd?.() ?? project,
     sessionManager,
@@ -86,6 +90,7 @@ export async function createCaraSession(options = {}) {
   injectCaraGuide(result.session, readPrompt(defaults.prompt));
   ensureCaraMemory(ROOT);
   injectLayeredMemory(result.session, ROOT);
+  injectActiveProfile(result.session, profile);
   const projectMemory = injectProjectMemory(result.session, project);
 
   await preferDefaultModel(result.session, options.model ?? defaults.model);
@@ -96,6 +101,7 @@ export async function createCaraSession(options = {}) {
     project,
     sessions,
     theme,
+    profile,
     projectMemory,
     thinking,
     modelFallbackMessage: result.modelFallbackMessage,
@@ -182,6 +188,45 @@ function readSessionTheme(sessionManager) {
   return undefined;
 }
 
+function ensureSessionProfile(sessionManager, options = {}) {
+  const requested = normalizeProfile(options.requested);
+  const stored = readSessionProfile(sessionManager);
+  const profile = requested && requested !== "auto" ? requested : stored ?? detectDefaultProfile();
+  if (options.persist && typeof sessionManager.appendCustomEntry === "function" && !stored) {
+    sessionManager.appendCustomEntry(CARA_PROFILE_CUSTOM_TYPE, {
+      profile,
+      source: requested && requested !== "auto" ? "manual" : "auto",
+      savedAt: new Date().toISOString(),
+    });
+  }
+  return profile;
+}
+
+function readSessionProfile(sessionManager) {
+  const entries = typeof sessionManager.getEntries === "function" ? sessionManager.getEntries() : [];
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i];
+    if (entry?.type === "custom" && entry.customType === CARA_PROFILE_CUSTOM_TYPE) {
+      return normalizeProfile(entry.data?.profile);
+    }
+  }
+  return undefined;
+}
+
+function detectDefaultProfile() {
+  const envProfile = normalizeProfile(process.env.CARA_PROFILE);
+  if (envProfile && envProfile !== "auto") return envProfile;
+  const username = String(os.userInfo().username ?? process.env.USERNAME ?? process.env.USER ?? "").toLowerCase();
+  const homeName = path.basename(os.homedir() || "").toLowerCase();
+  return username === "elson" || homeName === "elson" ? "elson" : "cara";
+}
+
+function normalizeProfile(value) {
+  const profile = String(value ?? "").trim().toLowerCase();
+  if (!profile) return undefined;
+  return ["elson", "cara", "auto"].includes(profile) ? profile : undefined;
+}
+
 async function preferDefaultModel(session, selector) {
   const [provider, ...modelParts] = String(selector ?? "").split("/");
   const modelId = modelParts.join("/");
@@ -205,6 +250,7 @@ export function describeRuntime(runtime) {
     project: runtime.project,
     sessions: runtime.sessions,
     theme: runtime.theme,
+    profile: runtime.profile,
     sessionId: sessionManager.getSessionId(),
     sessionFile: sessionManager.getSessionFile(),
     sessionName: sessionManager.getSessionName?.(),
@@ -215,6 +261,29 @@ export function describeRuntime(runtime) {
     thinking: runtime.session.thinkingLevel,
     model: model ? `${model.provider}/${model.id}` : "none",
   };
+}
+
+export function getActiveProfile(runtime) {
+  return runtime.profile ?? detectDefaultProfile();
+}
+
+export function setProfile(runtime, profile) {
+  const next = normalizeProfile(profile);
+  if (!next) {
+    throw new Error("Profile must be one of: elson, cara, auto.");
+  }
+  const resolved = next === "auto" ? detectDefaultProfile() : next;
+  runtime.profile = resolved;
+  injectActiveProfile(runtime.session, resolved);
+  const sessionManager = runtime.session.sessionManager;
+  if (typeof sessionManager.appendCustomEntry === "function" && sessionManager.getSessionFile?.()) {
+    sessionManager.appendCustomEntry(CARA_PROFILE_CUSTOM_TYPE, {
+      profile: resolved,
+      source: next === "auto" ? "auto" : "manual",
+      savedAt: new Date().toISOString(),
+    });
+  }
+  return resolved;
 }
 
 export function buildCaraConsolidationPrompt(runtime) {
@@ -391,6 +460,20 @@ function injectLayeredMemory(session, root) {
   const currentBase = session._baseSystemPrompt ?? session.agent.state.systemPrompt ?? "";
   session._baseSystemPrompt = currentBase.includes(`<${CARA_LAYERED_MEMORY_MARKER}>`)
     ? currentBase.replace(new RegExp(`\\n\\n<${CARA_LAYERED_MEMORY_MARKER}>[\\s\\S]*?</${CARA_LAYERED_MEMORY_MARKER}>`), addition)
+    : `${currentBase}${addition}`;
+  session.agent.state.systemPrompt = session._baseSystemPrompt;
+}
+
+function injectActiveProfile(session, profile) {
+  const label = profile === "elson" ? "Elson" : "Cara";
+  const mode =
+    profile === "elson"
+      ? "The active operator is Elson. Treat requests as builder/testing/product work for Cara's CLI unless context clearly says Cara is using it. Keep the same warmth and natural voice; use this only to understand that the tool is being built, tested, debugged, or shaped."
+      : "The active operator is Cara. Treat requests as a person using the tool to learn, code, ask, explore, or be accompanied. Keep the same warmth and natural voice; use this only to avoid assuming builder/admin intent.";
+  const addition = `\n\n<${CARA_PROFILE_MARKER}>\nProfile: ${label}\n${mode}\n</${CARA_PROFILE_MARKER}>`;
+  const currentBase = session._baseSystemPrompt ?? session.agent.state.systemPrompt ?? "";
+  session._baseSystemPrompt = currentBase.includes(`<${CARA_PROFILE_MARKER}>`)
+    ? currentBase.replace(new RegExp(`\\n\\n<${CARA_PROFILE_MARKER}>[\\s\\S]*?</${CARA_PROFILE_MARKER}>`), addition)
     : `${currentBase}${addition}`;
   session.agent.state.systemPrompt = session._baseSystemPrompt;
 }

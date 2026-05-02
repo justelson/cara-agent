@@ -33,6 +33,7 @@ Available controls are intentionally small:
 - change model
 - show local chats
 - show status
+- show or switch the active profile with `/profile`, `/profile elson`, `/profile cara`, or `/profile auto`
 - summarize what the agent knows about Cara with `/memory`
 - clean and update Cara memory layers with `/consolidate`
 - run markdown commands from `commands/*.md` or `<project>\.cara\commands\*.md`
@@ -43,6 +44,8 @@ Chats are stored under the active project folder at `<project>\.cara\sessions` u
 ## Cara Memory
 
 The CLI loads `AGENTS.md` files plus layered Cara memory from `.cara/memory`. `/memory` does not dump raw memory files; it gives a compact summary of what the agent currently knows about Cara.
+
+The active profile defaults to `elson` on Elson's Windows account and `cara` everywhere else. The profile does not change the warmth of the tool; it only tells the agent whether this is builder/testing work or Cara using the CLI.
 
 Use `/consolidate` after meaningful sessions. It asks the agent to clean the memory layers, move stable learnings into the right files, remove vague or duplicate notes, and carefully tighten `AGENTS.md` guidance when the way the agent should behave has changed.
 

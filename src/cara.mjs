@@ -12,6 +12,7 @@ import {
   runCaraPrompt,
   saveCaraExitSummary,
   setModel,
+  setProfile,
   setThinking,
 } from "./cara-sdk.mjs";
 import { createCaraUi } from "./cara-ui.mjs";
@@ -208,6 +209,15 @@ async function handleSlash(runtime, ui, input) {
   }
   if (command === "/status") {
     ui.status(describeRuntime(runtime));
+    return true;
+  }
+  if (command === "/profile") {
+    if (!arg) {
+      ui.info(`Profile: ${describeRuntime(runtime).profile}`);
+      return true;
+    }
+    const profile = setProfile(runtime, arg);
+    ui.info(`Profile: ${profile}`);
     return true;
   }
   if (command === "/memory") {

@@ -3,6 +3,7 @@ import { listCustomCommands } from "./cara-sdk.mjs";
 const COMMANDS = [
   { value: "/commands", label: "/commands", description: "show controls", kind: "command", submitOnEnter: true },
   { value: "/status", label: "/status", description: "project, model, thinking", kind: "command", submitOnEnter: true },
+  { value: "/profile", label: "/profile", description: "show or switch elson/cara mode", kind: "command" },
   { value: "/thinking", label: "/thinking", description: "cycle or set thinking effort", kind: "command" },
   { value: "/models", label: "/models", description: "open model picker", kind: "command" },
   { value: "/sessions", label: "/sessions", description: "show local chats", kind: "command", submitOnEnter: true },
@@ -24,6 +25,19 @@ export function getSlashSuggestions(runtime, text) {
         value: level,
         label: level,
         description: "thinking effort",
+        kind: "argument",
+        submitOnEnter: true,
+      }));
+  }
+
+  if (query.startsWith("/profile ")) {
+    const prefix = query.slice("/profile ".length);
+    return ["auto", "elson", "cara"]
+      .filter((profile) => profile.startsWith(prefix))
+      .map((profile) => ({
+        value: profile,
+        label: profile,
+        description: profile === "auto" ? "detect from OS account" : "active profile",
         kind: "argument",
         submitOnEnter: true,
       }));

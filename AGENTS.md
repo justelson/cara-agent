@@ -24,6 +24,13 @@ This project is a local Cara CLI built on top of the Pi SDK.
 - Use `/consolidate` as the manual cleanup pass that moves stable session learnings into the right layer and trims stale or vague notes.
 - Consolidation may carefully update AGENTS.md guidance when agent behavior needs to change across future threads.
 
+## Active Profile
+
+- The CLI auto-detects `elson` on Elson's OS account and `cara` elsewhere.
+- The active profile exists only to keep role awareness: Elson is usually building/testing the tool; Cara is usually using it to learn or be accompanied.
+- Do not make the voice colder or less warm because of profile.
+- `/profile` can show or override the active profile for testing.
+
 ## Live Adaptation
 
 - Sometimes Cara will not need a coding lesson or a fix; she may just need to chat, orient, vent, ask a small thing, or feel accompanied while she figures out what changed on her side.

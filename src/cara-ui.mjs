@@ -199,6 +199,8 @@ export function createCaraUi(options = {}) {
       line(`${bold}Slash commands${reset}
   /commands             show this list
   /status               show project, model, and thinking
+  /profile              show active profile
+  /profile <name>       auto, elson, cara
   /thinking             cycle thinking effort
   /thinking <level>     off, minimal, low, medium, high, xhigh
   /models               open model picker
@@ -211,6 +213,7 @@ export function createCaraUi(options = {}) {
     },
     status(status) {
       note("project", status.project);
+      note("profile", status.profile);
       note("model", status.model);
       note("thinking", status.thinking);
       note("sessions", status.sessions);
