@@ -12,6 +12,7 @@ const fallback = {
   userBg: 236,
   userFg: 97,
   toolBg: 235,
+  toolSuccessBg: 22,
   toolErrorBg: 52,
 };
 
@@ -34,7 +35,9 @@ export function buildTerminalTheme(openingTheme = {}) {
     userBg: bg(fallback.userBg),
     userFg: "\x1b[1m\x1b[97m",
     toolBg: bg(fallback.toolBg),
+    toolSuccessBg: bg(fallback.toolSuccessBg),
     toolErrorBg: bg(fallback.toolErrorBg),
+    toolFg: "\x1b[1m\x1b[97m",
     reset,
   };
 }

@@ -407,20 +407,18 @@ function formatAssistantPreview(content, theme = fallbackTheme) {
 }
 
 function renderToolBlock(toolState, theme = fallbackTheme) {
-  const toolTheme = fallbackTheme;
   const isError = toolState.isError || toolState.state === "error";
   const isDone = toolState.state === "done";
-  const color = isError ? toolTheme.error : isDone ? toolTheme.success : toolTheme.muted;
+  const stateLabel = isError ? "failed" : isDone ? "succeeded" : "running";
   const title = toolState.toolName ?? "tool";
-  const lines = ["", paintToolLine(title, color, toolTheme)];
+  const rows = [`${title} ${stateLabel}`];
   const args = summarizeToolArgs(toolState.args);
-  if (args) lines.push(...args.flatMap((line) => splitDisplayLines(line)).map((line) => paintToolLine(`  ${line}`, toolTheme.muted, toolTheme)));
+  if (args) rows.push(...args.flatMap((line) => splitDisplayLines(line)).map((line) => `  ${line}`));
   const outputText = summarizeToolResult(toolState.result);
   if (outputText) {
-    lines.push(...outputText.flatMap((line) => splitDisplayLines(line)).map((line) => paintToolLine(`  ${line}`, toolTheme.muted, toolTheme)));
+    rows.push(...outputText.flatMap((line) => splitDisplayLines(line)).map((line) => `  ${line}`));
   }
-  lines.push("");
-  return lines;
+  return renderToolMessage(rows, { isDone, isError }, theme);
 }
 
 function summarizeToolArgs(args) {
@@ -482,11 +480,22 @@ function assistantLine(text) {
   return `${assistantPadding}${text}`;
 }
 
-function paintToolLine(text, color = "", theme = fallbackTheme) {
+function renderToolMessage(rows, state, theme = fallbackTheme) {
   const width = Math.max(24, (output.columns ?? 100) - 1);
-  const contentWidth = Math.max(1, width - 3);
-  const content = truncate(text, contentWidth);
-  return `${theme.muted}|${reset} ${color}${content}${reset}`;
+  const contentWidth = Math.max(1, width);
+  const bg = state.isError ? theme.toolErrorBg : state.isDone ? theme.toolSuccessBg : theme.toolBg;
+  const fg = theme.toolFg ?? "\x1b[1m\x1b[97m";
+  const bgLine = (content = "") => `${bg}${fg}${padDisplay(content, contentWidth)}${reset}`;
+  return ["", bgLine(), ...rows.map((row) => bgLine(truncate(row, contentWidth))), bgLine(), ""];
+}
+
+function padDisplay(text, width) {
+  const value = String(text);
+  return `${value}${" ".repeat(Math.max(0, width - stripAnsi(value).length))}`;
+}
+
+function stripAnsi(text) {
+  return String(text).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
 function formatUsage(usage = {}) {
