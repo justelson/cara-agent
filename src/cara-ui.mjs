@@ -2,17 +2,13 @@ import { stdout as output } from "node:process";
 import { readFileSync } from "node:fs";
 import { renderOpeningBanner } from "./banner.mjs";
 import { renderMarkdown } from "./pi-markdown.mjs";
+import { renderProgressBox, renderRetryBlock, renderStatusBox } from "./terminal-blocks.mjs";
 import { runTerminalInputLoop } from "./terminal-input.mjs";
 import { buildTerminalTheme } from "./terminal-theme.mjs";
 
 const bold = "\x1b[1m";
-const italic = "\x1b[3m";
 const reset = "\x1b[0m";
 const fallbackTheme = buildTerminalTheme();
-const muted = fallbackTheme.muted;
-const green = fallbackTheme.success;
-const yellow = fallbackTheme.warning;
-const red = fallbackTheme.error;
 const assistantPadding = "  ";
 const outroMessages = loadJson("./outro-messages.json", {
   sessionComplete: ["another great coding session complete... or not, who knows"],
@@ -32,6 +28,7 @@ export function createCaraUi(options = {}) {
   let renderTimer = undefined;
   let suppressWorking = false;
   let activityLabel = "";
+  let progressBox = null;
 
   function write(text = "") {
     output.write(text);
@@ -71,16 +68,35 @@ export function createCaraUi(options = {}) {
     }
   }
 
-  function title(text) {
-    line(`${theme.primary}${text}${reset}`);
+  function beginProgressBox(title = "Working") {
+    progressBox = {
+      title,
+      label: "starting",
+      detail: "setting up the repo scan",
+      percent: 4,
+      toolCount: 0,
+      toolIds: new Set(),
+      done: false,
+    };
+    activityLabel = title.toLowerCase();
+    suppressWorking = false;
+    flushInputRender();
   }
 
-  function note(label, text) {
-    line(`${theme.muted}${label}:${reset} ${text}`);
+  function updateProgressBox(next = {}) {
+    if (!progressBox) return;
+    progressBox = {
+      ...progressBox,
+      ...next,
+      percent: clamp(Number(next.percent ?? progressBox.percent) || 0, 0, 100),
+    };
+    requestInputRender();
   }
 
-  function headerNote(label, text, color) {
-    line(`${bold}${color}${label}${reset}${theme.muted}:${reset} ${text}`);
+  function finishProgressBox() {
+    if (!progressBox) return;
+    progressBox = null;
+    requestInputRender();
   }
 
   function beginAssistant() {
@@ -106,6 +122,14 @@ export function createCaraUi(options = {}) {
     beginAssistant();
     activityLabel = activityFromAssistantEvent(event);
     streamingAssistantContent = next;
+    if (progressBox) {
+      updateProgressBox({
+        done: false,
+        label: "writing",
+        detail: "turning the scan into the start note",
+        percent: Math.max(progressBox.percent, 88),
+      });
+    }
     requestInputRender();
   }
 
@@ -121,6 +145,7 @@ export function createCaraUi(options = {}) {
       renderInput();
       return;
     }
+    if (progressBox) progressBox.done = true;
     print(`${formatAssistantContent(finalContent, theme).join("\n")}\n`);
     lastAssistantText = finalKey;
   }
@@ -138,6 +163,11 @@ export function createCaraUi(options = {}) {
       result: event.result ?? event.partialResult ?? current.result,
       isError: event.isError ?? state === "error",
     };
+
+    if (progressBox) {
+      updateProgressBox(progressPatchFromTool(progressBox, next, state));
+      return;
+    }
 
     if (state === "running") {
       suppressWorking = false;
@@ -161,8 +191,10 @@ export function createCaraUi(options = {}) {
       line("");
     },
     commands() {
-      line(`${bold}Slash commands${reset}
+      line(`
+${bold}Slash commands${reset}
   /commands             show this list
+  /start                ask the agent for the project starting point
   /status               show project, model, and thinking
   /profile              show active profile
   /profile <name>       auto, elson, cara
@@ -170,28 +202,28 @@ export function createCaraUi(options = {}) {
   /thinking <level>     off, minimal, low, medium, high, xhigh
   /models               open model picker
   /models <provider/model>
+  @file                 search and attach project files in prompts
   /sessions             show local chats
   /memory               summarize what Cara memory knows
   /consolidate          clean and update Cara memory layers
   /reload               reload custom slash commands
   /<custom>             run .cara/commands/<custom>.md
-  /exit                 leave`);
+  /exit                 leave
+  /quit                 leave`);
     },
     status(status) {
-      note("project", status.project);
-      note("profile", status.profile);
-      note("model", status.model);
-      note("thinking", status.thinking);
-      note("sessions", status.sessions);
-      note("chat", status.sessionId);
-      if (status.sessionName) note("name", status.sessionName);
-      if (status.sessionFile) note("file", status.sessionFile);
-      if (status.projectMemory?.length) note("memory", status.projectMemory.join(", "));
-      if (status.customCommands?.length) note("commands", status.customCommands.map((command) => `/${command.name}`).join(", "));
+      print(`${renderStatusBox(status, theme, output.columns).join("\n")}\n`);
+    },
+    beginProgress(title) {
+      beginProgressBox(title);
+    },
+    endProgress() {
+      finishProgressBox();
     },
     memory(status) {
       const overview = status.memoryOverview ?? ["What I know about Cara", "  Nothing stable yet."];
       const commands = status.customCommands ?? [];
+      line("");
       for (const memoryLine of overview) {
         if (!memoryLine) {
           line("");
@@ -212,6 +244,7 @@ export function createCaraUi(options = {}) {
       }
     },
     sessions(sessions) {
+      line("");
       if (!sessions.length) {
         line(`${theme.muted}No local chats yet.${reset}`);
         return;
@@ -257,7 +290,7 @@ export function createCaraUi(options = {}) {
       }
       if (event.type === "auto_retry_start") {
         activityLabel = "retrying";
-        line(`${theme.warning}retry${reset} ${event.attempt}/${event.maxAttempts}: ${event.errorMessage}`);
+        print(renderRetryBlock(event, theme, output.columns).join("\n"));
       }
       if (event.type === "compaction_start") {
         activityLabel = "compacting";
@@ -268,6 +301,7 @@ export function createCaraUi(options = {}) {
       print(["", `${theme.error}Error:${reset} ${error instanceof Error ? error.message : String(error)}`, ""].join("\n") + "\n");
     },
     info(text) {
+      line("");
       line(`${theme.success}${text}${reset}`);
     },
     async interactive(onInput, options = {}) {
@@ -276,9 +310,16 @@ export function createCaraUi(options = {}) {
         getActivityLabel: () => activityLabel,
         suppressWorking: () => suppressWorking,
         hasTransientLines() {
-          return Boolean((assistantOpen && hasAssistantContent(streamingAssistantContent)) || activeTools.size > 0);
+          return Boolean((progressBox && !progressBox.done) || (assistantOpen && hasAssistantContent(streamingAssistantContent)) || activeTools.size > 0);
         },
         getTransientLines() {
+          if (progressBox && !progressBox.done) {
+            const lines = renderProgressBox(progressBox, theme, output.columns);
+            if (assistantOpen && hasAssistantContent(streamingAssistantContent)) {
+              lines.push(...formatAssistantPreview(streamingAssistantContent, theme).slice(1));
+            }
+            return lines;
+          }
           const lines = [];
           if (assistantOpen && hasAssistantContent(streamingAssistantContent)) {
             lines.push(...formatAssistantPreview(streamingAssistantContent, theme));
@@ -406,29 +447,64 @@ function formatAssistantPreview(content, theme = fallbackTheme) {
   return lines;
 }
 
+function progressPatchFromTool(progress, toolState, state) {
+  if (!toolState || !progress) return {};
+  const toolId = toolState.toolCallId ?? toolState.id ?? toolState.toolName ?? "tool";
+  const seen = progress.toolIds ?? new Set();
+  const firstSeen = !seen.has(toolId);
+  seen.add(toolId);
+  const toolCount = progress.toolCount + (firstSeen ? 1 : 0);
+  const running = state === "running";
+  const toolName = formatToolActivity(toolState.toolName);
+  const summary = summarizeTool(toolState);
+  const percent = running
+    ? Math.min(82, Math.max(progress.percent + 3, 12 + toolCount * 12))
+    : Math.min(86, Math.max(progress.percent + 5, 20 + toolCount * 13));
+
+  return {
+    toolIds: seen,
+    toolCount,
+    done: false,
+    label: running ? `checking ${toolName}` : `checked ${toolName}`,
+    detail: summary || "reading project files",
+    percent,
+  };
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 function renderToolBlock(toolState, theme = fallbackTheme) {
   const isError = toolState.isError || toolState.state === "error";
   const isDone = toolState.state === "done";
   const stateLabel = isError ? "failed" : isDone ? "succeeded" : "running";
   const title = toolState.toolName ?? "tool";
-  const rows = [`${title} ${stateLabel}`];
+  const rows = [
+    { kind: "title", text: `${title} ${stateLabel}` },
+    { kind: "hint", text: "summary ..." },
+  ];
   const args = summarizeToolArgs(toolState.args);
-  if (args) rows.push(...args.flatMap((line) => splitDisplayLines(line)).map((line) => `  ${line}`));
+  if (args) rows.push(...args.flatMap((line) => splitDisplayLines(line)).map((line) => ({ kind: "detail", text: `  ${line}` })));
   const outputText = summarizeToolResult(toolState.result);
   if (outputText) {
-    rows.push(...outputText.flatMap((line) => splitDisplayLines(line)).map((line) => `  ${line}`));
+    rows.push(...outputText.flatMap((line) => splitDisplayLines(line)).map((line) => ({ kind: "detail", text: `  ${line}` })));
   }
   return renderToolMessage(rows, { isDone, isError }, theme);
 }
 
 function summarizeToolArgs(args) {
   if (!args || typeof args !== "object") return [];
-  const important = args.path ?? args.filePath ?? args.cwd ?? args.command ?? args.cmd;
+  const important = args.path ?? args.filePath ?? args.command ?? args.cmd ?? args.cwd;
   if (typeof important === "string" && important.length > 0) return [truncate(important, 120)];
-  const entries = Object.entries(args)
-    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+  const values = Object.entries(args)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "");
+  const entries = values
     .slice(0, 4)
     .map(([key, value]) => `${key}: ${formatToolValue(value)}`);
+  if (values.length > entries.length) {
+    entries.push(`... ${values.length - entries.length} more arg${values.length - entries.length === 1 ? "" : "s"}`);
+  }
   return entries;
 }
 
@@ -441,7 +517,12 @@ function summarizeToolResult(result) {
     .join("\n")
     .trim();
   if (!text) return [];
-  return text.split(/\r?\n/).filter(Boolean).slice(0, 4).map((line) => truncate(line, 120));
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  const visible = lines.slice(0, 4).map((line) => truncate(line, 120));
+  if (lines.length > visible.length) {
+    visible.push(`... ${lines.length - visible.length} more output line${lines.length - visible.length === 1 ? "" : "s"}`);
+  }
+  return visible;
 }
 
 function formatToolValue(value) {
@@ -484,9 +565,19 @@ function renderToolMessage(rows, state, theme = fallbackTheme) {
   const width = Math.max(24, (output.columns ?? 100) - 1);
   const contentWidth = Math.max(1, width);
   const bg = state.isError ? theme.toolErrorBg : state.isDone ? theme.toolSuccessBg : theme.toolBg;
-  const fg = theme.toolFg ?? "\x1b[1m\x1b[97m";
-  const bgLine = (content = "") => `${bg}${fg}${padDisplay(content, contentWidth)}${reset}`;
-  return ["", bgLine(), ...rows.map((row) => bgLine(truncate(row, contentWidth))), bgLine(), ""];
+  const bgLine = (row = "") => {
+    const item = typeof row === "string" ? { kind: "detail", text: row } : row;
+    const color = toolRowColor(item.kind, theme);
+    const content = truncate(item.text ?? "", contentWidth);
+    return `${bg}${color}${padDisplay(content, contentWidth)}${reset}`;
+  };
+  return ["", bgLine(), ...rows.map((row) => bgLine(row)), bgLine(), ""];
+}
+
+function toolRowColor(kind, theme = fallbackTheme) {
+  if (kind === "title") return theme.toolTitleFg ?? theme.toolFg ?? "\x1b[1m\x1b[97m";
+  if (kind === "hint") return theme.toolHintFg ?? theme.toolFg ?? "\x1b[38;5;245m";
+  return theme.toolDetailFg ?? theme.toolFg ?? "\x1b[97m";
 }
 
 function padDisplay(text, width) {
@@ -565,14 +656,22 @@ function extractAssistantEventContent(event, current = emptyAssistantContent()) 
   const partialContent = extractAssistantContent(event.assistantMessageEvent?.partial?.content);
   const next = longerAssistantContent(messageContent, partialContent, current);
 
-  if (hasAssistantContent(next) && next !== current) return next;
+  if (hasAssistantContent(next) && assistantContentKey(next) !== assistantContentKey(current)) return next;
 
   const delta = event.assistantMessageEvent;
   if (delta?.type === "text_delta" && typeof delta.delta === "string" && delta.delta.length > 0) {
-    return { ...current, text: `${current.text}${delta.delta}` };
+    return { ...current, text: mergeAssistantTextDelta(current.text, delta.delta) };
   }
 
   return next;
+}
+
+function mergeAssistantTextDelta(currentText, deltaText) {
+  if (!currentText) return deltaText;
+  if (!deltaText) return currentText;
+  if (deltaText === currentText || currentText.endsWith(deltaText)) return currentText;
+  if (deltaText.startsWith(currentText)) return deltaText;
+  return `${currentText}${deltaText}`;
 }
 
 function longerAssistantContent(...contents) {

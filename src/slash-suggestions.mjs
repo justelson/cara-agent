@@ -1,7 +1,9 @@
 import { listCustomCommands } from "./cara-sdk.mjs";
+import { applyFileMentionSuggestion, getFileMentionSuggestions } from "./file-mentions.mjs";
 
 const COMMANDS = [
   { value: "/commands", label: "/commands", description: "show controls", kind: "command", submitOnEnter: true },
+  { value: "/start", label: "/start", description: "ask for the repo starting point", kind: "command", submitOnEnter: true },
   { value: "/status", label: "/status", description: "project, model, thinking", kind: "command", submitOnEnter: true },
   { value: "/profile", label: "/profile", description: "show or switch elson/cara mode", kind: "command" },
   { value: "/thinking", label: "/thinking", description: "cycle or set thinking effort", kind: "command" },
@@ -11,9 +13,13 @@ const COMMANDS = [
   { value: "/consolidate", label: "/consolidate", description: "clean and update Cara memory layers", kind: "command", submitOnEnter: true },
   { value: "/reload", label: "/reload", description: "reload custom slash commands", kind: "command", submitOnEnter: true },
   { value: "/exit", label: "/exit", description: "leave", kind: "command", submitOnEnter: true },
+  { value: "/quit", label: "/quit", description: "leave", kind: "command", submitOnEnter: true },
 ];
 
 export function getSlashSuggestions(runtime, text) {
+  const fileMentions = getFileMentionSuggestions(runtime, text);
+  if (fileMentions.length > 0) return fileMentions;
+
   if (!text.startsWith("/")) return [];
 
   const query = text.toLowerCase();
@@ -88,6 +94,10 @@ export function getSlashSuggestions(runtime, text) {
 
 export function applySlashSuggestion(text, item) {
   if (!item) return text;
+
+  if (item.kind === "file-mention") {
+    return applyFileMentionSuggestion(text, item);
+  }
 
   if (item.kind === "command") {
     return item.submitOnEnter ? item.value : `${item.value} `;

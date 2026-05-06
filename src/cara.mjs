@@ -17,6 +17,7 @@ import {
   setThinking,
 } from "./cara-sdk.mjs";
 import { createCaraUi } from "./cara-ui.mjs";
+import { buildProjectStartPrompt } from "./project-start.mjs";
 import { selectSession } from "./session-picker.mjs";
 import { applySlashSuggestion, getSlashSuggestions } from "./slash-suggestions.mjs";
 import { renderStatusLine } from "./status-line.mjs";
@@ -203,9 +204,18 @@ async function handleSlash(runtime, ui, input) {
   const command = rawCommand.toLowerCase();
   const arg = rest.join(" ");
 
-  if (command === "/exit" || text === "exit" || text === "quit") return true;
+  if (command === "/exit" || command === "/quit" || text === "exit" || text === "quit") return true;
   if (command === "/commands" || command === "/help") {
     ui.commands();
+    return true;
+  }
+  if (command === "/start") {
+    ui.beginProgress("Project scan");
+    try {
+      await runCaraPrompt(runtime, buildProjectStartPrompt(runtime, arg));
+    } finally {
+      ui.endProgress();
+    }
     return true;
   }
   if (command === "/status") {
@@ -264,7 +274,7 @@ async function handleSlash(runtime, ui, input) {
 
 function isExitInput(input) {
   const text = input.trim().toLowerCase();
-  return text === "/exit" || text === "exit" || text === "quit";
+  return text === "/exit" || text === "/quit" || text === "exit" || text === "quit";
 }
 
 function getSubmissionText(submission) {

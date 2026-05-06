@@ -160,7 +160,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     const next = options.applySuggestion?.(buffer, selected) ?? selected?.value;
     if (!next) return false;
     buffer = next;
-    completedText = next.endsWith(" ") ? "" : next;
+    completedText = next.endsWith(" ") || (selected.kind === "file-mention" && selected.isDirectory) ? "" : next;
     suppressSuggestionsFor = selected.kind === "custom-model" ? next : "";
     selectedIndex = 0;
     render();

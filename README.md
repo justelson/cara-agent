@@ -1,8 +1,8 @@
-# Pi CLI
+# Cara's Agent
 
-This is a general builder CLI built directly on the local pi SDK.
+This is a local Cara coding assistant CLI built directly on the Pi SDK.
 
-It uses the current folder as the project, keeps startup quiet, and exposes only a small runtime control surface inside chat.
+It uses the current folder as the project, keeps startup quiet, and exposes a small runtime control surface inside chat.
 
 ## Start
 
@@ -29,6 +29,8 @@ Type `/commands` to see controls.
 
 Available controls are intentionally small:
 
+- search and attach project files in prompts with `@`, for example `explain @src/App.jsx`
+- ask the agent to inspect the repo and write a short project-specific starting point with `/start`
 - change thinking effort
 - change model
 - show local chats
@@ -38,7 +40,7 @@ Available controls are intentionally small:
 - clean and update Cara memory layers with `/consolidate`
 - reload custom slash commands with `/reload`
 - run markdown commands from `commands/*.md` or `<project>\.cara\commands\*.md`
-- exit
+- exit or quit
 
 Chats are stored under the active project folder at `<project>\.cara\sessions` using pi's JSONL session format. Use `sessions` to list project chats, `continue` or `--continue` to keep going from the newest chat, `resume` to open the picker, and `resume <id>` or `--session <id>` to open a specific one.
 

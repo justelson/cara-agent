@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { normalizeOpeningTheme, pickOpeningTheme } from "./banner.mjs";
 import { buildConsolidationPrompt, buildLayeredMemoryPrompt, buildMemoryOverview, ensureCaraMemory } from "./cara-memory.mjs";
+import { expandFileMentions } from "./file-mentions.mjs";
 
 const PI_ROOT = path.resolve("C:/Users/elson/my_coding_play/play projects/pi");
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -240,13 +241,15 @@ async function preferDefaultModel(session, selector) {
 }
 
 export async function runCaraPrompt(runtime, prompt, options = {}) {
-  await runtime.session.prompt(prompt, { source: "interactive", images: options.images });
+  const expanded = expandFileMentions(runtime, prompt);
+  await runtime.session.prompt(expanded.text, { source: "interactive", images: options.images });
 }
 
 export function describeRuntime(runtime) {
   const model = runtime.session.model;
   const sessionManager = runtime.session.sessionManager;
   const usage = calculateSessionUsage(sessionManager);
+  const contextUsage = runtime.session.getContextUsage?.();
   return {
     project: runtime.project,
     sessions: runtime.sessions,
@@ -256,6 +259,7 @@ export function describeRuntime(runtime) {
     sessionFile: sessionManager.getSessionFile(),
     sessionName: sessionManager.getSessionName?.(),
     usage,
+    contextUsage,
     projectMemory: runtime.projectMemory ?? [],
     memoryOverview: buildMemoryOverview(defaults.root),
     customCommands: listCustomCommands(runtime),
