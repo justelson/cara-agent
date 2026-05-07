@@ -1,53 +1,81 @@
 # Cara's Agent
 
-I made this for Cara because I did not want her first real software-learning experience to feel like school, pressure, or a cold machine.
+I made this for Cara.
 
-I wanted her to have a small place she could enter, even when she felt unsure, and still be treated like someone who belongs near real code.
+Not because i wanted to make another coding tutor or some polished AI productivity thing. I made it because i wanted her first real way into software to feel less cold.
 
-This is a local coding companion built on top of the Pi SDK. It runs in the terminal, opens in whatever folder you are working in, and helps with the real loop of software work: notice what feels wrong, inspect the files, explain the next useful idea, make a careful fix, run a check, and understand what changed.
+Like, if she is going to learn coding, i don't want it to start with a syllabus and a robot voice explaining variables like she is in school. I want her to be able to open a terminal, be in a real folder, point at a real thing that feels weird, and have something there that can actually look with her.
 
-The point is not to teach a syllabus first. The point is to let her learn from the outside in by touching the real thing.
+Something that says, okay, let's see what changed. Let's read the file. Let's fix one thing. Let's run it. Here's what the diff means.
 
-## Why This Exists
+Not in a fake sweet way. Not in a lecture way. Just there.
 
-Cara is learning software engineering through actual projects, not abstract lessons.
+This repo is that little place.
 
-So this agent is shaped around a simple belief:
+It is a local CLI built on top of the Pi SDK. It runs in whatever project folder you open it from, saves chats locally, can read and edit files, can run checks, and has a Cara-specific behavior layer so the interaction feels like a workshop instead of a classroom.
 
-> she should be allowed to learn by fixing real things, with enough warmth to keep coming back and enough seriousness to make the work real.
+The whole point is that she can learn from the outside in by touching the real thing.
 
-That means the agent should:
+## Why
 
-- read the actual files before guessing
-- explain things simply without talking down to her
-- keep beginner moments small and survivable
-- avoid fake cheerfulness and lecture energy
-- make real edits when the task is coding
-- verify work with real checks when possible
-- help her understand the diff before moving on
-- let her just chat when that is what the moment needs
+Because Cara is new to this, but she is not helpless.
 
-It is not supposed to be a generic tutor. It is supposed to feel like a little workshop: warm, direct, practical, and safe enough to return to.
+And i don't want the tool to treat her like she is helpless.
 
-## How I Made It
+I want it to keep the steps small enough that she can stay with it, but real enough that it still counts. If something is broken, the agent should inspect the actual code. If a word shows up that she doesn't know, it should explain that word in the context of the thing she is already doing. If a fix happens, she should get to understand what changed instead of just watching magic happen.
 
-The CLI wraps the local Pi SDK and gives it a Cara-specific runtime:
+The loop i care about is simple:
 
-- `prompts/cara-level1.md` defines the learning style and behavior contract.
-- `AGENTS.md` keeps project-level rules for voice, memory, live adaptation, and engineering habits.
-- `src/` holds the terminal UI, slash commands, file mentions, session handling, status line, and Pi SDK wiring.
-- `.cara/memory/` is local-only layered memory for what the agent should remember about Cara and the way she learns.
-- `.cara/sessions/` is local-only chat history so the tool can resume where it left off.
+- she notices something feels off
+- she says it in normal words
+- the agent checks the real files
+- it explains only the next useful thing
+- it makes the smallest serious fix
+- it runs or names the check
+- it explains the diff
+- she leaves knowing a little more than before
 
-Private notes, exported chats, analysis artifacts, and local sessions are intentionally ignored by Git. The public repo should contain the tool and behavior shape, not private source material.
+That is it. That is the experience.
 
-## Start
+Not a course. Not a chatbot pretending to be a teacher. A small workshop she can keep coming back to.
+
+## What it should feel like
+
+Warm, but not corny.
+
+Soft, but not fake.
+
+Beginner-safe, but not babying her.
+
+Serious when it is code. Chill when it is just chat.
+
+The agent should not turn every tiny question into a framework. It should not over-praise her or do the "great question!" thing all the time. It should be honest when something is risky or confusing. It should actually do the work when the work is clear.
+
+Mostly i want it to feel like this:
+
+> we can look at the real thing together, and you don't have to already know how to say it perfectly.
+
+## How it is built
+
+The public part of this repo is the tool and the behavior shape.
+
+- `src/` is the CLI: terminal UI, slash commands, file mentions, sessions, status line, and Pi SDK wiring.
+- `prompts/cara-level1.md` is the main behavior guide.
+- `AGENTS.md` is the project-level instruction file for how this agent should act.
+- `commands/` is where reusable slash-command workflows can grow over time.
+- `cara.ps1` and `cara.cmd` are the local launchers.
+
+The private stuff is not meant to be in Git.
+
+Local chats, memory, exported IG data, analysis notes, scratch files, and anything personal should stay local and ignored. This repo should show the shape of the thing, not expose the private material that helped me understand why it should exist.
+
+## Run it
 
 ```powershell
 .\cara.ps1
 ```
 
-## One-Shots
+## One-off commands
 
 ```powershell
 .\cara.ps1 inspect
@@ -60,32 +88,32 @@ Private notes, exported chats, analysis artifacts, and local sessions are intent
 .\cara.ps1 doctor
 ```
 
-## In Chat
+## Inside chat
 
-Type `/commands` to see controls.
+Type `/commands` to see what is available.
 
-Useful controls:
+The useful ones are:
 
-- attach project files with `@`, for example `explain @src/App.jsx`
-- use `/start` to inspect the current repo and get a project-specific starting point
-- use `/status` to see the current project, model, profile, context, and session info
-- use `/profile`, `/profile elson`, `/profile cara`, or `/profile auto` to show or switch the active profile
-- use `/memory` to summarize what the agent knows about Cara
-- use `/consolidate` after meaningful sessions to clean and update memory layers
-- use `/reload` after adding or editing custom slash commands
-- use `/thinking` and `/models` to adjust runtime behavior
-- use `/sessions`, `continue`, or `resume` to return to saved local chats
-- use `/exit`, `/quit`, `exit`, or `quit` to leave cleanly
+- `@file` to attach a project file to the prompt
+- `/start` to scan the current repo and give a plain starting point
+- `/status` to see project/session/model info
+- `/profile` to see or switch whether this is Elson/build mode or Cara/use mode
+- `/memory` to summarize what the agent knows about Cara
+- `/consolidate` to clean up local memory after meaningful sessions
+- `/thinking` and `/models` to adjust runtime behavior
+- `/sessions`, `continue`, and `resume` to come back to saved local chats
+- `/reload` after editing custom commands
+- `/exit` or `/quit` when done
 
-## Memory And Commands
+## Commands should earn their place
 
-The CLI loads `AGENTS.md` files plus layered Cara memory from `.cara/memory`. `/memory` gives a compact summary, not a raw dump.
+I don't want this repo full of random starter slash commands just to look capable.
 
-The active profile defaults to `elson` on Elson's Windows account and `cara` elsewhere. That does not make the voice colder or warmer; it only helps the agent understand whether the moment is builder/testing work or Cara using the tool.
-
-Custom slash commands are meant to grow from repeated real workflows, not from starter-command clutter:
+If Cara keeps doing the same workflow over and over, then yeah, save it as a command:
 
 - `commands/<name>.md` for global Cara CLI commands
 - `<project>/.cara/commands/<name>.md` for project-local commands
 
-Run `/reload` after adding or editing command files.
+Then run `/reload`.
+
+The tool should grow from real use, not from pretending we already know every workflow she will need.
