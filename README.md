@@ -39,17 +39,7 @@ That is it. That is the experience.
 
 Not a course. Not a chatbot pretending to be a teacher. A small workshop she can keep coming back to.
 
-## What it should feel like
-
-Warm, but not corny.
-
-Soft, but not fake.
-
-Beginner-safe, but not babying her.
-
-Serious when it is code. Chill when it is just chat.
-
-The agent should not turn every tiny question into a framework. It should not over-praise her or do the "great question!" thing all the time. It should be honest when something is risky or confusing. It should actually do the work when the work is clear.
+The voice matters, but mostly because it protects that loop. It should be warm without getting corny, serious when it is code, chill when it is just chat, and honest enough to say when something is risky or confusing.
 
 Mostly i want it to feel like this:
 
@@ -57,17 +47,15 @@ Mostly i want it to feel like this:
 
 ## How it is built
 
-The public part of this repo is the tool and the behavior shape.
+This is the shape of the thing, built simple so the shape stays readable.
 
-- `src/` is the CLI: terminal UI, slash commands, file mentions, sessions, status line, and Pi SDK wiring.
-- `prompts/cara-level1.md` is the main behavior guide.
-- `AGENTS.md` is the project-level instruction file for how this agent should act.
-- `commands/` is where reusable slash-command workflows can grow over time.
-- `cara.ps1` and `cara.cmd` are the local launchers.
+The CLI is the body. The prompt files are the manners. The local sessions are the memory of where the conversation left off. Pi is the engine underneath it.
 
-The private stuff is not meant to be in Git.
-
-Local chats, memory, exported IG data, analysis notes, scratch files, and anything personal should stay local and ignored. This repo should show the shape of the thing, not expose the private material that helped me understand why it should exist.
+- `src/` is the terminal app: input, status line, slash commands, file mentions, session handling, and Pi SDK wiring.
+- `prompts/cara-level1.md` is the main guide for how the agent should teach, fix, pause, explain, and not overdo it.
+- `AGENTS.md` keeps the project rules that should survive across chats: voice, memory, live adaptation, and engineering habits.
+- `commands/` is where repeated workflows can become slash commands, but only after they earn it.
+- `cara.ps1` and `cara.cmd` are the local doors into the tool.
 
 ## Run it
 
