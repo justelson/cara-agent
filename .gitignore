@@ -2,15 +2,18 @@ node_modules/
 dist/
 .playwright-cli/
 .cara/
+.coord/
+tmp/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
 *.zip
 pi-session-*.html
 
+# Private Cara/IG archive material and derived analysis outputs
+resources/instagram-*/
+resources/cara-analysis/
+
 apps/*/node_modules/
 apps/*/dist/
 apps/*/.playwright-cli/
-
-resources/instagram-*/
-resources/cara-analysis/user-story/unsplash.local.json
