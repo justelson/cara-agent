@@ -2,7 +2,8 @@ param(
   [switch]$SkipNodeInstall,
   [string]$Repo = "justelson/cara-agent",
   [string]$Ref = "master",
-  [string]$InstallDir = "$env:LOCALAPPDATA\Cara"
+  [string]$InstallDir = "$env:LOCALAPPDATA\Cara",
+  [switch]$NoPathUpdate
 )
 
 $ErrorActionPreference = "Stop"
@@ -140,7 +141,9 @@ try {
   Pop-Location
 }
 
-Ensure-PathEntry $Root
+if (-not $NoPathUpdate) {
+  Ensure-PathEntry $Root
+}
 
 Write-Host "Checking install..."
 & (Join-Path $Root "cara.cmd") doctor
