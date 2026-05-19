@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const reset = "\x1b[0m";
 const terminalThemeMarker = Symbol.for("cara.terminalTheme");
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-export const DEFAULT_TERMINAL_THEME = "rose-pine";
+export const DEFAULT_TERMINAL_THEME = "quiet";
 
 const localBuiltInThemes = [
   {
@@ -141,6 +141,8 @@ export function resolveTerminalTheme(selector = DEFAULT_TERMINAL_THEME, options 
   if (exact) return exact;
   const fuzzy = themes.find((theme) => theme.name.toLowerCase().includes(value.toLowerCase()));
   if (fuzzy) return fuzzy;
+  const fallback = themes.find((theme) => theme.name === DEFAULT_TERMINAL_THEME) ?? localBuiltInThemes[0];
+  if (value !== DEFAULT_TERMINAL_THEME) return fallback;
   throw new Error(`Theme not found: ${value}. Try /themes.`);
 }
 

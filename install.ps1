@@ -177,6 +177,7 @@ function Ensure-Node-Version {
 function Download-CaraSource($TargetDir) {
   $temp = Join-Path ([System.IO.Path]::GetTempPath()) ("cara-install-" + [System.Guid]::NewGuid().ToString("N"))
   $zip = Join-Path $temp "cara.zip"
+  $preserve = Join-Path $temp "preserve"
   New-Item -ItemType Directory -Force -Path $temp | Out-Null
 
   $urls = @(
@@ -206,10 +207,23 @@ function Download-CaraSource($TargetDir) {
   if (-not $source) { throw "Downloaded Cara archive did not contain a source folder." }
 
   if (Test-Path $TargetDir) {
+    New-Item -ItemType Directory -Force -Path $preserve | Out-Null
+    foreach ($name in @(".deps", "node_modules")) {
+      $existing = Join-Path $TargetDir $name
+      if (Test-Path $existing) {
+        Move-Item -Force $existing (Join-Path $preserve $name)
+      }
+    }
     Remove-Item -Recurse -Force $TargetDir
   }
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $TargetDir) | Out-Null
   Copy-Item -Recurse -Force $source.FullName $TargetDir
+  foreach ($name in @(".deps", "node_modules")) {
+    $saved = Join-Path $preserve $name
+    if (Test-Path $saved) {
+      Move-Item -Force $saved (Join-Path $TargetDir $name)
+    }
+  }
   Remove-Item -Recurse -Force $temp
   return $TargetDir
 }
@@ -231,11 +245,15 @@ function Ensure-PathEntry($Dir) {
 
 $Root = Get-InitialRoot
 if (-not (Test-Path (Join-Path $Root "package.json"))) {
-  if (Test-Path (Join-Path $InstallDir "package.json")) {
-    Write-Host "Using existing Cara install at $InstallDir"
-    $Root = $InstallDir
-  } else {
+  try {
     $Root = Download-CaraSource $InstallDir
+  } catch {
+    if (Test-Path (Join-Path $InstallDir "package.json")) {
+      Write-Host "Download failed; using existing Cara install at $InstallDir"
+      $Root = $InstallDir
+    } else {
+      throw
+    }
   }
 }
 
