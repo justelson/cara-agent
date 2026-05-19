@@ -126,7 +126,13 @@ On macOS/Linux:
 bash install.sh
 ```
 
-The installer checks for Node 22.19.0 or newer because the CLI runs on Node and Pi requires current Node APIs. It then installs package dependencies, makes the `cara` command available, and runs `cara doctor`. For package-manager actions, prefer Bun; the installer falls back to npm when Bun is not available.
+The installer checks for Node 22.19.0 or newer because the CLI runs on Node and Pi requires current Node APIs. If Node or Cara dependencies are missing, it asks before installing them. It then makes the `cara` command available and runs `cara doctor`. For package-manager actions, prefer Bun; the installer falls back to npm when Bun is not available.
+
+For unattended installs, pass `-Yes`:
+
+```powershell
+.\install.ps1 -Yes
+```
 
 A GitHub release can now ship this repo/package without requiring a separate Pi checkout.
 
