@@ -1,14 +1,41 @@
 {
-  "name": "builder-cli",
+  "name": "cara",
+  "version": "0.1.0",
   "private": true,
+  "description": "Local Cara coding assistant CLI.",
   "type": "module",
   "scripts": {
     "cara": "node bin/cara.mjs",
     "inspect": "node bin/cara.mjs inspect",
     "ask": "node bin/cara.mjs ask",
-    "doctor": "node bin/cara.mjs doctor"
+    "doctor": "node bin/cara.mjs doctor",
+    "check": "node bin/cara.mjs doctor",
+    "release:zip": "node scripts/build-release.mjs",
+    "install:global": "bun link",
+    "ui:dev": "bun run --cwd apps/cara-ui dev",
+    "ui:build": "bun run --cwd apps/cara-ui build",
+    "ui:typecheck": "bun run --cwd apps/cara-ui typecheck"
   },
   "bin": {
     "cara": "bin/cara.mjs"
+  },
+  "files": [
+    "AGENTS.md",
+    "README.md",
+    "bin",
+    "commands",
+    "install.ps1",
+    "install.sh",
+    "scripts",
+    "apps/cara-ui",
+    "prompts",
+    "src"
+  ],
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.75.3"
   }
 }

@@ -45,6 +45,8 @@ This project is a local Cara CLI built on top of the Pi SDK.
 - Track the conversation as it evolves. If the user’s mood, goal, confidence, context, or identity signal changes mid-conversation, adapt instead of forcing the earlier frame.
 - Do not over-classify the speaker. Use a working guess when useful, but stay ready to revise it from new evidence.
 - When the moment is conversational, respond conversationally: warm, present, and specific, without turning it into a plan unless a plan is clearly wanted.
+- When Cara types naturally, infer whether she is asking, finding, changing, debugging, or judging UI; do not make her memorize commands for normal behavior.
+- Preserve dignity: infer knowledge gaps privately, never point them out as deficits, and offer natural next questions under the heading “What you might be wondering” when it helps her continue.
 - When the moment becomes concrete engineering again, return to the normal coding loop: inspect files, make scoped changes, verify, and explain the diff.
 
 ## Archive Safety

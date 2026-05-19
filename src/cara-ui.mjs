@@ -1,10 +1,9 @@
 import { stdout as output } from "node:process";
 import { readFileSync } from "node:fs";
-import { renderOpeningBanner } from "./banner.mjs";
 import { renderMarkdown } from "./pi-markdown.mjs";
-import { renderProgressBox, renderRetryBlock, renderStatusBox } from "./terminal-blocks.mjs";
+import { renderAccountStatusBox, renderCodexUsageBox, renderProgressBox, renderRetryBlock, renderStatusBox } from "./terminal-blocks.mjs";
 import { runTerminalInputLoop } from "./terminal-input.mjs";
-import { buildTerminalTheme } from "./terminal-theme.mjs";
+import { applyTerminalTheme, buildTerminalTheme } from "./terminal-theme.mjs";
 
 const bold = "\x1b[1m";
 const reset = "\x1b[0m";
@@ -16,9 +15,10 @@ const outroMessages = loadJson("./outro-messages.json", {
 });
 
 export function createCaraUi(options = {}) {
-  const theme = buildTerminalTheme(options.theme);
+  const theme = buildTerminalTheme(options.terminalTheme ?? options.theme);
   let lastAssistantText = "";
   let streamingAssistantContent = emptyAssistantContent();
+  let directAssistantText = "";
   let assistantOpen = false;
   const activeTools = new Map();
   let isBusy = false;
@@ -105,6 +105,7 @@ export function createCaraUi(options = {}) {
     activityLabel = "thinking";
     assistantOpen = true;
     streamingAssistantContent = emptyAssistantContent();
+    directAssistantText = "";
   }
 
   function streamAssistant(content) {
@@ -117,6 +118,16 @@ export function createCaraUi(options = {}) {
   }
 
   function streamAssistantEvent(event) {
+    const delta = event.assistantMessageEvent;
+    if (!inputActive && delta?.type === "text_delta" && typeof delta.delta === "string" && delta.delta.length > 0) {
+      beginAssistant();
+      activityLabel = "writing";
+      directAssistantText = mergeAssistantTextDelta(directAssistantText, delta.delta);
+      streamingAssistantContent = { ...streamingAssistantContent, text: directAssistantText };
+      write(delta.delta);
+      return;
+    }
+
     const next = extractAssistantEventContent(event, streamingAssistantContent);
     if (!hasAssistantContent(next)) return;
     beginAssistant();
@@ -129,18 +140,30 @@ export function createCaraUi(options = {}) {
         detail: "turning the scan into the start note",
         percent: Math.max(progressBox.percent, 88),
       });
+    } else {
+      requestInputRender();
     }
-    requestInputRender();
   }
 
   function finishAssistant(content) {
     cancelInputRender();
     const finalContent = normalizeAssistantContent(extractAssistantContent(content), streamingAssistantContent);
     const finalKey = assistantContentKey(finalContent);
+    const directKey = directAssistantText.trim();
     streamingAssistantContent = emptyAssistantContent();
     assistantOpen = false;
     activityLabel = "writing";
     suppressWorking = true;
+
+    if (directKey) {
+      if (!directAssistantText.endsWith("\n")) write("\n");
+      lastAssistantText = finalKey || directKey;
+      directAssistantText = "";
+      renderInput();
+      return;
+    }
+
+    directAssistantText = "";
     if (!finalKey || finalKey === lastAssistantText) {
       renderInput();
       return;
@@ -171,7 +194,7 @@ export function createCaraUi(options = {}) {
 
     if (state === "running") {
       suppressWorking = false;
-      activityLabel = `using ${formatToolActivity(next.toolName)}`;
+      activityLabel = activityFromTool(next);
       activeTools.set(toolCallId, next);
       requestInputRender();
       return;
@@ -179,40 +202,91 @@ export function createCaraUi(options = {}) {
 
     cancelInputRender();
     activeTools.delete(toolCallId);
-    activityLabel = activeTools.size > 0 ? `using ${formatToolActivity(activeTools.values().next().value?.toolName)}` : "thinking";
+    activityLabel = activeTools.size > 0 ? activityFromTool(activeTools.values().next().value) : "thinking";
     print(renderToolBlock(next, theme).join("\n"));
   }
 
   return {
-    banner() {
-      for (const bannerLine of renderOpeningBanner(undefined, options.theme)) {
-        line(bannerLine);
-      }
+    banner(status = {}) {
+      const project = status.project ?? options.project ?? process.cwd();
+      const model = status.model ?? options.model ?? "loading";
+      const thinking = status.thinking ?? options.thinking ?? "medium";
+      const themeName = status.terminalTheme ?? theme.name ?? "theme";
+      line(`${theme.accent}✦${reset} ${bold}${theme.primary}Cara${reset}`);
+      line(`   ${theme.muted}${project}${reset}`);
+      line(`   ${theme.info}${model}${reset} ${theme.muted}·${reset} ${theme.warning}${thinking}${reset} ${theme.muted}·${reset} ${theme.accent}${themeName}${reset}`);
+      line("");
+      line(`   ${theme.primary}/start${reset} ${theme.muted}to orient ·${reset} ${theme.accent}/themes${reset} ${theme.muted}to change the room ·${reset} ${theme.success}@file${reset} ${theme.muted}to bring context${reset}`);
       line("");
     },
     commands() {
       line(`
 ${bold}Slash commands${reset}
   /commands             show this list
+  cara auth             show account, plan, and Codex limits
+  cara account          same as cara auth
+  cara codexusage       show current Codex quota usage
+  cara login            login with ChatGPT Plus/Pro via Pi auth
+  cara logout           clear stored ChatGPT/Codex auth
+  -p, --print "..."     print one answer and exit
+  --model <provider/model>
+                       choose model for startup or print
+  --profile <name>     auto, elson, cara
+  --theme <name>       choose terminal theme on startup
   /start                ask the agent for the project starting point
   /status               show project, model, and thinking
   /profile              show active profile
   /profile <name>       auto, elson, cara
+  /auth                 show account, plan, and Codex limits
+  /account              same as /auth
+  /codexusage           show current Codex quota usage
+  /login                login with ChatGPT Plus/Pro via Pi auth
+  /logout               clear stored ChatGPT/Codex login
   /thinking             cycle thinking effort
   /thinking <level>     off, minimal, low, medium, high, xhigh
+  /themes               list terminal themes
+  /themes <name>        switch theme for this chat
   /models               open model picker
   /models <provider/model>
   @file                 search and attach project files in prompts
-  /sessions             show local chats
+  /session              show current chat file, messages, tokens, cost
   /memory               summarize what Cara memory knows
   /consolidate          clean and update Cara memory layers
-  /reload               reload custom slash commands
+  /reload               reload Cara from disk and resume this chat
+  /reload --soft        reload commands, themes, prompt, memory only
   /<custom>             run .cara/commands/<custom>.md
   /exit                 leave
   /quit                 leave`);
     },
     status(status) {
       print(`${renderStatusBox(status, theme, output.columns).join("\n")}\n`);
+    },
+    account(account) {
+      print(`${renderAccountStatusBox(account, theme, output.columns).join("\n")}\n`);
+    },
+    codexUsage(stats) {
+      print(`${renderCodexUsageBox(stats, theme, output.columns).join("\n")}\n`);
+    },
+    starting(label = "Starting agent") {
+      const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+      let frame = 0;
+      let stopped = false;
+      const width = () => Math.max(24, (output.columns ?? 100) - 1);
+      const render = () => {
+        if (stopped) return;
+        const text = `${theme.accent}${frames[frame % frames.length]}${reset} ${theme.muted}${label}${reset}`;
+        frame += 1;
+        write(`\r${padDisplay(text, width())}`);
+      };
+      line("");
+      render();
+      const timer = setInterval(render, 120);
+      return () => {
+        if (stopped) return;
+        stopped = true;
+        clearInterval(timer);
+        write(`\r${" ".repeat(width())}\r`);
+      };
     },
     beginProgress(title) {
       beginProgressBox(title);
@@ -243,24 +317,31 @@ ${bold}Slash commands${reset}
         }
       }
     },
-    sessions(sessions) {
+    sessionInfo(info = {}) {
+      const messages = info.messages ?? {};
+      const tokens = info.tokens ?? {};
+      const cost = info.cost ?? {};
       line("");
-      if (!sessions.length) {
-        line(`${theme.muted}No local chats yet.${reset}`);
-        return;
-      }
-      line(`${bold}Local chats${reset}`);
-      for (const session of sessions.slice(0, 20)) {
-        const id = session.id.slice(0, 8);
-        const title = session.name || session.firstMessage || "(no messages)";
-        const when = formatSessionTime(session.modified);
-        const count = `${session.messageCount} msg${session.messageCount === 1 ? "" : "s"}`;
-        line(`  ${theme.success}${id}${reset}  ${truncate(title.replace(/\s+/g, " "), 58)}`);
-        line(`      ${theme.muted}${when} - ${count} - ${formatSessionPath(session.path)}${reset}`);
-      }
-      if (sessions.length > 20) {
-        line(`${theme.muted}${sessions.length - 20} more chats hidden. Resume with a longer id if needed.${reset}`);
-      }
+      line(`${bold}${theme.primary}Session Info${reset}`);
+      line("");
+      line(` ${theme.warning}File:${reset} ${theme.muted}${info.file ?? "in-memory"}${reset}`);
+      line(` ${theme.warning}ID:${reset} ${theme.muted}${info.id ?? "none"}${reset}`);
+      line("");
+      line(`${bold} Messages${reset}`);
+      line(` User: ${formatCount(messages.user)}`);
+      line(` Assistant: ${formatCount(messages.assistant)}`);
+      line(` Tool Calls: ${formatCount(messages.toolCalls)}`);
+      line(` Tool Results: ${formatCount(messages.toolResults)}`);
+      line(` Total: ${formatCount(messages.total)}`);
+      line("");
+      line(`${bold} Tokens${reset}`);
+      line(` Input: ${formatCount(tokens.input)}`);
+      line(` Output: ${formatCount(tokens.output)}`);
+      line(` Cache Read: ${formatCount(tokens.cacheRead)}`);
+      line(` Total: ${formatCount(tokens.total)}`);
+      line("");
+      line(`${bold} Cost${reset}`);
+      line(` Total: ${formatCostValue(cost.total)}`);
     },
     event(event) {
       if (event.type === "turn_start") {
@@ -304,28 +385,46 @@ ${bold}Slash commands${reset}
       line("");
       line(`${theme.success}${text}${reset}`);
     },
+    block(lines = []) {
+      const text = Array.isArray(lines) ? lines.join("\n") : String(lines ?? "");
+      print(`${text.endsWith("\n") ? text : `${text}\n`}`);
+    },
+    setTheme(nextTheme) {
+      applyTerminalTheme(theme, nextTheme);
+      flushInputRender();
+    },
+    themes(themes, activeName) {
+      line("");
+      line(`${bold}Themes${reset}`);
+      for (const item of themes) {
+        const active = item.name === activeName ? `${theme.success}*${reset}` : " ";
+        const source = item.source ? ` ${theme.muted}${item.source}${reset}` : "";
+        line(` ${active} ${theme.primary}${item.name}${reset} ${theme.muted}${item.displayName ?? item.description ?? ""}${reset}${source}`);
+      }
+    },
     async interactive(onInput, options = {}) {
-      await runTerminalInputLoop(onInput, { ...options, theme: options.theme ?? theme }, {
+      await runTerminalInputLoop(onInput, { ...options, theme }, {
         getBusy: () => isBusy,
         getActivityLabel: () => activityLabel,
         suppressWorking: () => suppressWorking,
         hasTransientLines() {
-          return Boolean((progressBox && !progressBox.done) || (assistantOpen && hasAssistantContent(streamingAssistantContent)) || activeTools.size > 0);
+          return Boolean(
+            (progressBox && !progressBox.done) ||
+            activeTools.size > 0 ||
+            (assistantOpen && hasAssistantContent(streamingAssistantContent))
+          );
         },
         getTransientLines() {
           if (progressBox && !progressBox.done) {
-            const lines = renderProgressBox(progressBox, theme, output.columns);
-            if (assistantOpen && hasAssistantContent(streamingAssistantContent)) {
-              lines.push(...formatAssistantPreview(streamingAssistantContent, theme).slice(1));
-            }
-            return lines;
+            return renderProgressBox(progressBox, theme, output.columns);
           }
           const lines = [];
-          if (assistantOpen && hasAssistantContent(streamingAssistantContent)) {
-            lines.push(...formatAssistantPreview(streamingAssistantContent, theme));
-          }
           for (const toolState of activeTools.values()) {
             lines.push(...renderToolBlock(toolState, theme));
+          }
+          if (lines.length > 0) return lines;
+          if (assistantOpen && hasAssistantContent(streamingAssistantContent)) {
+            return formatAssistantContent(streamingAssistantContent, theme);
           }
           return lines;
         },
@@ -353,18 +452,13 @@ ${bold}Slash commands${reset}
     goodbye(status) {
       const sessionComplete = pick(outroMessages.sessionComplete);
       const fromElson = pick(outroMessages.fromElson);
-      const technicalLines = formatTechnicalDetails(status);
       line("");
       line(`${theme.primary}${sessionComplete}${reset}`);
       line(`${theme.muted}btw elson says:${reset} ${fromElson}`);
-      line("");
-      for (const detailLine of technicalLines) {
-        line(`${theme.dimMuted}${detailLine}${reset}`);
-      }
       return {
         sessionComplete,
         fromElson,
-        technicalLines,
+        technicalLines: [],
         usage: status.usage,
         sessionId: status.sessionId,
         sessionFile: status.sessionFile,
@@ -390,7 +484,7 @@ function activityFromAssistantEvent(event) {
   if (update?.type === "text_start" || update?.type === "text_delta" || hasAssistantContent(extractAssistantContent(event.message?.content))) {
     return "writing";
   }
-  if (update?.type === "toolcall_start" || update?.type === "toolcall_delta") return "working";
+  if (update?.type === "toolcall_start" || update?.type === "toolcall_delta") return activityFromTool(update);
   return "thinking";
 }
 
@@ -402,8 +496,32 @@ function formatToolActivity(value) {
     .toLowerCase() || "tool";
 }
 
+function activityFromTool(toolState = {}) {
+  const rawName = toolState.toolName ?? toolState.name ?? toolState.functionName ?? toolState.type ?? "tool";
+  const name = formatToolActivity(rawName);
+  const args = toolState.args ?? toolState.arguments ?? {};
+  const command = typeof args.command === "string" ? args.command : typeof args.cmd === "string" ? args.cmd : "";
+  const value = `${name} ${command}`.toLowerCase();
+
+  if (/\b(web|browser|chrome|navigate|click|screenshot)\b/.test(value)) return "browsing";
+  if (/\b(search|find|grep|rg|list|ls|read|get|open|cat|sed|head|tail|view)\b/.test(value)) return "reading files";
+  if (/\b(apply patch|patch|edit|write|create|update|replace|move|copy|delete|remove|mkdir)\b/.test(value)) return "editing";
+  if (/\b(test|check|typecheck|lint|build|verify|doctor)\b/.test(value)) return "checking";
+  if (/\b(exec|command|shell|bash|powershell|cmd|npm|node|bun|pnpm|yarn|git|run)\b/.test(value)) return "running command";
+
+  return name && name !== "tool" ? `using ${name}` : "working";
+}
+
 function truncate(text, max) {
   return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+}
+
+function formatCount(value) {
+  return Math.round(Number(value) || 0).toLocaleString("en-US");
+}
+
+function formatCostValue(value) {
+  return Number(value || 0).toFixed(4);
 }
 
 function formatSessionTime(value) {
@@ -428,22 +546,9 @@ function formatAssistantContent(content, theme = fallbackTheme) {
   const width = assistantContentWidth();
   const lines = [""];
   if (content.text.trim()) {
-    const renderedText = trimOuterBlankLines(renderMarkdown(content.text, width));
+    const renderedText = trimOuterBlankLines(renderMarkdown(content.text, width, theme));
     lines.push(...renderedText.map((line) => assistantLine(line, theme)));
   }
-  return lines;
-}
-
-function formatAssistantPreview(content, theme = fallbackTheme) {
-  const width = assistantContentWidth();
-  const lines = [""];
-  const text = content.text.trim();
-
-  if (text) {
-    const renderedText = trimOuterBlankLines(renderMarkdown(text, width)).map((line) => assistantLine(line, theme));
-    lines.push(...renderedText);
-  }
-
   return lines;
 }
 
@@ -587,43 +692,6 @@ function padDisplay(text, width) {
 
 function stripAnsi(text) {
   return String(text).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
-}
-
-function formatUsage(usage = {}) {
-  const parts = [
-    `total=${formatNumber(usage.total)}`,
-    `input=${formatNumber(usage.input)}`,
-  ];
-  if (usage.cacheRead) {
-    parts.push(`(+ ${formatNumber(usage.cacheRead)} cached)`);
-  }
-  if (usage.cacheWrite) {
-    parts.push(`cache write=${formatNumber(usage.cacheWrite)}`);
-  }
-  if (usage.reasoning) {
-    parts.push(`output=${formatNumber(usage.output)} (reasoning ${formatNumber(usage.reasoning)})`);
-  } else {
-    parts.push(`output=${formatNumber(usage.output)}`);
-  }
-  return parts.join(" ");
-}
-
-function formatTechnicalDetails(status) {
-  const lines = [
-    "Technical details",
-    `  Token usage: ${formatUsage(status.usage)}`,
-  ];
-  if (status.sessionId && status.sessionFile) {
-    lines.push(`  Continue: .\\cara.ps1 resume ${status.sessionId}`);
-  }
-  if (status.sessionFile) {
-    lines.push(`  Session: ${formatSessionPath(status.sessionFile)}`);
-  }
-  return lines;
-}
-
-function formatNumber(value) {
-  return Math.round(Number(value) || 0).toLocaleString("en-US");
 }
 
 function pick(values) {

@@ -1,4 +1,4 @@
-# Cara's Agent
+# Cara
 
 I made this for Cara.
 
@@ -52,7 +52,7 @@ This is the shape of the thing, built simple so the shape stays readable.
 The CLI is the body. The prompt files are the manners. The local sessions are the memory of where the conversation left off. Pi is the engine underneath it.
 
 - `src/` is the terminal app: input, status line, slash commands, file mentions, session handling, and Pi SDK wiring.
-- `prompts/cara-level1.md` is the main guide for how the agent should teach, fix, pause, explain, and not overdo it.
+- `prompts/cara-workshop-guide.md` is the main guide for how the agent should teach, fix, pause, explain, and not overdo it.
 - `AGENTS.md` keeps the project rules that should survive across chats: voice, memory, live adaptation, and engineering habits.
 - `commands/` is where repeated workflows can become slash commands, but only after they earn it.
 - `cara.ps1` and `cara.cmd` are the local doors into the tool.
@@ -63,12 +63,110 @@ The CLI is the body. The prompt files are the manners. The local sessions are th
 .\cara.ps1
 ```
 
-## One-off commands
+The normal experience should be conversational. Cara should be able to type naturally:
+
+```txt
+how does chat work
+where is the report button
+make this page less ugly
+why does this say batch
+can I change this color
+```
+
+The agent should detect whether she is asking, finding, changing, debugging, or judging UI, then respond at her level. Specific commands are optional shortcuts for Elson/dev testing, not something Cara has to memorize.
+
+## Dev commands
+
+Use Bun for repo/package-manager tasks:
+
+```powershell
+bun run ui:dev
+bun run ui:typecheck
+```
+
+The CLI runs on Node. Pi is now a normal package dependency of Cara, so it no longer needs Elson's local Pi source checkout.
+
+## Install the terminal command
+
+Fresh Windows install from GitHub:
+
+```powershell
+irm https://raw.githubusercontent.com/justelson/cara-agent/master/install.ps1 | iex
+```
+
+That downloads Cara into:
+
+```txt
+%LOCALAPPDATA%\Cara
+```
+
+and adds the `cara` command to the user PATH.
+
+From a local clone of this repo, install the same command with:
+
+```powershell
+.\install.ps1
+```
+
+On macOS/Linux:
+
+```bash
+bash install.sh
+```
+
+The installer checks for Node 22.19.0 or newer because the CLI runs on Node and Pi requires current Node APIs. It then installs package dependencies, makes the `cara` command available, and runs `cara doctor`. For package-manager actions, prefer Bun; the installer falls back to npm when Bun is not available.
+
+A GitHub release can now ship this repo/package without requiring a separate Pi checkout.
+
+## Auth setup
+
+Cara uses Pi auth under the hood, so ChatGPT/Codex credentials are stored in the same Pi auth file:
+
+```txt
+~/.pi/agent/auth.json
+```
+
+On Cara's machine, log in with her own ChatGPT Plus/Pro account:
+
+```powershell
+.\cara.ps1 login
+```
+
+Check account, plan, limits, or clear auth:
+
+```powershell
+.\cara.ps1 auth
+.\cara.ps1 account
+.\cara.ps1 codexusage
+.\cara.ps1 logout
+```
+
+Inside an interactive Cara chat, the Pi-style slash commands work too:
+
+```txt
+/auth
+/account
+/codexusage
+/login
+/logout
+```
+
+Do not copy Elson's `auth.json` to Cara's machine. Let her log in so the tokens belong to her account.
+
+## Optional one-off commands
+
+These are useful for Elson, testing, and repeat workflows. They are not required for normal use.
 
 ```powershell
 .\cara.ps1 inspect
 .\cara.ps1 ask "Explain this error simply"
+.\cara.ps1 -p "Explain this error simply"
 .\cara.ps1 --project "C:\path\to\repo"
+.\cara.ps1 auth
+.\cara.ps1 account
+.\cara.ps1 codexusage
+.\cara.ps1 login
+.\cara.ps1 logout
 .\cara.ps1 sessions
 .\cara.ps1 continue
 .\cara.ps1 resume
@@ -86,11 +184,15 @@ The useful ones are:
 - `/start` to scan the current repo and give a plain starting point
 - `/status` to see project/session/model info
 - `/profile` to see or switch whether this is Elson/build mode or Cara/use mode
+- `/auth` or `/account` to show logged-in email, plan, token status, and Codex limits
+- `/login`, `/logout` to manage ChatGPT/Codex auth like Pi
+- `/codexusage` to show only current Codex quota usage and reset times
 - `/memory` to summarize what the agent knows about Cara
 - `/consolidate` to clean up local memory after meaningful sessions
 - `/thinking` and `/models` to adjust runtime behavior
 - `/sessions`, `continue`, and `resume` to come back to saved local chats
-- `/reload` after editing custom commands
+- `/reload` to restart Cara from disk and resume the chat after code/resource edits
+- `/reload --soft` after editing custom commands, themes, prompts, or memory when you do not need a process restart
 - `/exit` or `/quit` when done
 
 ## Commands should earn their place

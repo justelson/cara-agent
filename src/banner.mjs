@@ -41,14 +41,22 @@ export function normalizeOpeningTheme(value) {
 export function renderOpeningBanner(
   width = Math.max(32, (process.stdout.columns ?? 100) - 1),
   openingTheme = pickOpeningTheme(),
+  terminalTheme,
 ) {
   const theme = normalizeOpeningTheme(openingTheme);
   const maxWidth = Math.max(24, width);
   const displayMessage = chooseDisplayMessage(theme.message.toLowerCase(), maxWidth);
   const artRows = renderTextArt(displayMessage, maxWidth);
 
+  if (terminalTheme) {
+    return [
+      ...styleArtRows(artRows, [terminalTheme.primary, terminalTheme.accent, terminalTheme.success, terminalTheme.warning]),
+      "",
+      `${terminalTheme.primary}type${reset} ${terminalTheme.muted}/ to open menu${reset}`,
+    ];
+  }
+
   return [
-    color("from elson", theme.palette.from),
     ...colorArtRows(artRows, theme.palette.art),
     "",
     `${color("type", theme.palette.art[0])} ${color("/ to open menu", theme.palette.hint)}`,
@@ -133,6 +141,12 @@ function getGlyph(character) {
 function colorArtRows(rows, colors) {
   const blockHeight = Number(font.height) || 6;
   return rows.map((row, index) => color(row, colors[Math.floor(index / blockHeight) % colors.length]));
+}
+
+function styleArtRows(rows, styles) {
+  const blockHeight = Number(font.height) || 6;
+  const palette = styles.filter(Boolean);
+  return rows.map((row, index) => `${palette[Math.floor(index / blockHeight) % palette.length] ?? ""}${row}${reset}`);
 }
 
 function color(text, colorCode) {

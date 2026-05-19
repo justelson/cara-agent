@@ -1,7 +1,7 @@
 import readline from "node:readline";
 import { readFileSync } from "node:fs";
 import { stdin as input, stdout as output } from "node:process";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { buildTerminalTheme } from "./terminal-theme.mjs";
 
 const normalIntensity = "\x1b[22m";
@@ -45,7 +45,16 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
   let placeholderText = pickPlaceholder();
   let renderedMenuLines = 0;
   let renderedEditorLines = 0;
+  let lastRenderedOutput = "";
+  let lastSelectedSuggestionKey = "";
   let hasTranscript = false;
+  let inputHistory = [];
+  let inputHistoryIndex = null;
+  let inputHistoryDraft = "";
+  const starterRecommendations = normalizeStarterRecommendations(options.starterRecommendations);
+  let starterRecommendationDismissed = false;
+  let insertedStarterPrompt = "";
+  const imagePastePromises = new Set();
   let cleanedUp = false;
   let batchOpen = false;
   let finish = () => {};
@@ -83,6 +92,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     renderedPromptIndex = 0;
     renderedMenuLines = 0;
     renderedEditorLines = 0;
+    lastRenderedOutput = "";
   };
 
   const render = () => {
@@ -91,9 +101,11 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     const isBusy = turnActive && !controls.suppressWorking?.();
     if (turnActive && !busyStartedAt) busyStartedAt = Date.now();
     if (!turnActive) busyStartedAt = 0;
+    const activityLabel = controls.getActivityLabel?.() || (waiting ? "starting" : "working");
     const prompt = `${theme.primary}>${fgReset} `;
     const suggestions = suggestionsFor(buffer);
     if (selectedIndex >= suggestions.length) selectedIndex = 0;
+    notifySelectedSuggestion(suggestions[selectedIndex]);
     const maxVisible = options.maxSuggestions ?? 10;
     const startIndex = Math.max(
       0,
@@ -108,8 +120,16 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     } else if (hasTranscript) {
       lines.push("");
     }
+    const showStarterRecommendations = shouldShowStarterRecommendations();
+    if (showStarterRecommendations) {
+      lines.push(renderStarterRecommendationLine(starterRecommendations[0], liveWidth, theme));
+    }
+    if (isBusy) {
+      lines.push(renderInputActivityLine(busyFrame, theme, activityLabel));
+    }
     const displayText = displayTextFor(buffer, pastedBlocks);
-    const editorLines = renderEditorLines({ prompt, text: displayText, placeholder: placeholderText }, liveWidth, theme);
+    const editorLines = renderEditorLines({ prompt, text: displayText, placeholder: placeholderText }, liveWidth, theme)
+      .map((line) => styleAttachmentLabels(line, theme, fgReset));
     lines.push(...editorLines);
     const menuLines = [];
     if (suggestions.length > 0) {
@@ -117,40 +137,40 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
         const item = suggestions[i];
         const marker = i === selectedIndex ? `${inverse}>${reset}` : `${theme.muted}-${reset}`;
         const label = i === selectedIndex ? `${inverse}${item.label}${reset}` : `${theme.primary}${item.label}${reset}`;
-        menuLines.push(`${marker} ${label} ${theme.muted}${item.description ?? ""}${reset}`);
+        const left = `${marker} ${label} ${theme.muted}${item.description ?? ""}${reset}`;
+        menuLines.push(alignMenuPreview(left, item.preview, liveWidth, theme));
       }
       if (startIndex > 0 || endIndex < suggestions.length) {
         menuLines.push(`${theme.muted}(${selectedIndex + 1}/${suggestions.length})${reset}`);
       }
     }
     lines.push(...menuLines);
-    const activityLabel = controls.getActivityLabel?.() || (waiting ? "sending" : "working");
     const statusLine = options.statusLine?.(liveWidth, {
-      activity: isBusy ? renderWorkingStatus(busyStartedAt, busyFrame, theme, activityLabel) : "",
+      activity: "",
     });
     if (statusLine) {
-      lines.push(`${theme.muted}${statusLine}${reset}`);
+      lines.push(statusLine);
     }
 
-    const previousRenderedLines = renderedLines;
-    const menuChangedHeight = renderedMenuLines !== menuLines.length;
-    const editorChangedHeight = renderedEditorLines !== editorLines.length;
-    const topPadding =
-      !menuChangedHeight && !editorChangedHeight && previousRenderedLines > lines.length
-        ? previousRenderedLines - lines.length
-        : 0;
+    const nextOutput = lines.join("\n");
+    if (nextOutput === lastRenderedOutput) return;
 
     beginBatch();
     clear();
-    if (topPadding > 0) {
-      output.write("\n".repeat(topPadding));
-    }
-    output.write(lines.join("\n"));
-    renderedLines = lines.length + topPadding;
+    output.write(nextOutput);
+    renderedLines = lines.length;
+    lastRenderedOutput = nextOutput;
     renderedMenuLines = menuLines.length;
     renderedEditorLines = editorLines.length;
     renderedPromptIndex = Math.max(0, renderedLines - 1);
     endBatch();
+  };
+
+  const notifySelectedSuggestion = (item) => {
+    const key = item ? `${item.kind ?? ""}:${item.value ?? item.label ?? ""}` : "";
+    if (key === lastSelectedSuggestionKey) return;
+    lastSelectedSuggestionKey = key;
+    queueMicrotask(() => options.onSuggestionSelect?.(item));
   };
 
   const completeSelection = (completionOptions = {}) => {
@@ -163,11 +183,42 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     completedText = next.endsWith(" ") || (selected.kind === "file-mention" && selected.isDirectory) ? "" : next;
     suppressSuggestionsFor = selected.kind === "custom-model" ? next : "";
     selectedIndex = 0;
+    inputHistoryIndex = null;
     render();
     if (completionOptions.submitOnEnter && selected.submitOnEnter) {
       return next.trim();
     }
     return false;
+  };
+
+  const shouldShowStarterRecommendations = () => {
+    return !starterRecommendationDismissed && !hasTranscript && !waiting && !buffer.trim() && starterRecommendations.length > 0;
+  };
+
+  const insertStarterRecommendation = () => {
+    const selected = starterRecommendations[0];
+    if (!selected?.prompt) return false;
+    buffer = selected.prompt;
+    insertedStarterPrompt = selected.prompt;
+    completedText = "";
+    suppressSuggestionsFor = "";
+    selectedIndex = 0;
+    inputHistoryIndex = null;
+    render();
+    return true;
+  };
+
+  const clearStarterRecommendation = () => {
+    if (insertedStarterPrompt && buffer.trim() === insertedStarterPrompt.trim()) {
+      buffer = "";
+    }
+    starterRecommendationDismissed = true;
+    insertedStarterPrompt = "";
+    completedText = "";
+    suppressSuggestionsFor = "";
+    selectedIndex = 0;
+    inputHistoryIndex = null;
+    render();
   };
 
   const flushPendingTextInput = () => {
@@ -180,6 +231,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     pendingInsertedText = "";
     const start = buffer.length;
     buffer += str;
+    insertedStarterPrompt = "";
     if (isLikelyPaste(str)) {
       pastedBlocks.push({
         id: `paste-${Date.now()}-${pastedBlocks.length + 1}`,
@@ -192,6 +244,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     completedText = "";
     suppressSuggestionsFor = "";
     selectedIndex = 0;
+    inputHistoryIndex = null;
     render();
   };
 
@@ -202,19 +255,33 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
   };
 
   const submit = async (text) => {
-    const displayText = displayTextFor(text, pastedBlocks);
+    let submittedText = text;
+    if (imagePastePromises.size > 0) {
+      waiting = true;
+      render();
+      await Promise.allSettled([...imagePastePromises]);
+      submittedText = buffer.trim();
+    }
+    const displayText = displayTextFor(submittedText, pastedBlocks);
+    const hasImages = pastedImages.length > 0;
+    if (!submittedText && !hasImages) {
+      waiting = false;
+      render();
+      return false;
+    }
     const submission =
-      pastedImages.length > 0 || displayText !== text
+      hasImages || displayText !== submittedText
         ? {
-            text,
+            text: submittedText,
             displayText,
             images: pastedImages.map((item) => item.image),
           }
-        : text;
+        : submittedText;
     beginBatch();
     clear();
     output.write(`\n${renderUserMessage(displayText, theme)}\n`);
     endBatch();
+    rememberInputHistory(submittedText);
     hasTranscript = true;
     buffer = "";
     pastedBlocks = [];
@@ -222,7 +289,8 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     placeholderText = pickPlaceholder(placeholderText);
     selectedIndex = 0;
     suppressSuggestionsFor = "";
-    waiting = shouldShowWaitingFor(text);
+    inputHistoryIndex = null;
+    waiting = hasImages || shouldShowWaitingFor(submittedText);
     render();
     try {
       return await onInput(submission);
@@ -253,6 +321,15 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
       process.exit(130);
     }
     const suggestions = suggestionsFor(buffer);
+    const starterPromptIsInserted = insertedStarterPrompt && buffer.trim() === insertedStarterPrompt.trim();
+    if (key?.name === "down" && (shouldShowStarterRecommendations() || starterPromptIsInserted)) {
+      clearStarterRecommendation();
+      return;
+    }
+    if (key?.name === "up" && shouldShowStarterRecommendations()) {
+      insertStarterRecommendation();
+      return;
+    }
     if (key?.name === "down" && suggestions.length > 0) {
       selectedIndex = (selectedIndex + 1) % suggestions.length;
       render();
@@ -260,6 +337,14 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     }
     if (key?.name === "up" && suggestions.length > 0) {
       selectedIndex = (selectedIndex - 1 + suggestions.length) % suggestions.length;
+      render();
+      return;
+    }
+    if (key?.name === "up" && recallInputHistory(-1)) {
+      render();
+      return;
+    }
+    if (key?.name === "down" && recallInputHistory(1)) {
       render();
       return;
     }
@@ -277,7 +362,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
         return;
       }
       const text = buffer.trim();
-      if (!text) {
+      if (!text && imagePastePromises.size === 0) {
         render();
         return;
       }
@@ -288,41 +373,57 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     if (key?.name === "backspace") {
       const removed = removeLastInputUnit(buffer, pastedBlocks, pastedImages);
       buffer = removed.buffer;
+      insertedStarterPrompt = "";
       pastedBlocks = removed.blocks;
       pastedImages = removed.images;
       completedText = "";
       suppressSuggestionsFor = "";
       selectedIndex = 0;
+      inputHistoryIndex = null;
       render();
       return;
     }
     if (key?.name === "escape") {
       buffer = "";
+      insertedStarterPrompt = "";
       pastedBlocks = [];
       pastedImages = [];
       completedText = "";
       suppressSuggestionsFor = "";
       selectedIndex = 0;
+      inputHistoryIndex = null;
       render();
       return;
     }
     if ((key?.meta || key?.alt) && key?.name === "v") {
-      const pastedImage = readClipboardImage();
-      if (pastedImage) {
-        const id = `image-${Date.now()}-${pastedImages.length + 1}`;
+      const id = `image-${Date.now()}-${pastedImages.length + 1}`;
+      let blockIdInserted = false;
+
+      const insertPastedImageBlock = (pastedImage) => {
+        if (cleanedUp || blockIdInserted || !pastedImage) return;
+        const prefix = buffer && !/\s$/.test(buffer) ? " " : "";
         const dimensions =
           pastedImage.width && pastedImage.height ? ` ${pastedImage.width}x${pastedImage.height}` : "";
-        const label = `[Pasted Image${dimensions}]`;
-        const prefix = buffer && !/\s$/.test(buffer) ? " " : "";
-        const start = buffer.length + prefix.length;
-        buffer += `${prefix}${label}`;
+        const start = buffer.length;
+        const label = `${prefix}[Pasted Image${dimensions}]`;
+        buffer += label;
         pastedBlocks.push({ id, type: "image", start, end: buffer.length, label });
-        pastedImages.push({ id, image: pastedImage.image });
+        pastedImages = [...pastedImages.filter((item) => item.id !== id), { id, image: pastedImage.image }];
+        blockIdInserted = true;
         completedText = "";
         suppressSuggestionsFor = "";
         selectedIndex = 0;
+        inputHistoryIndex = null;
         render();
-      }
+      };
+
+      const pastePromise = (async () => {
+        const pastedImage = await readClipboardImage();
+        if (cleanedUp) return;
+        insertPastedImageBlock(pastedImage);
+      })();
+      imagePastePromises.add(pastePromise);
+      pastePromise.finally(() => imagePastePromises.delete(pastePromise)).catch(() => {});
       return;
     }
     if (isPlainTextInput) {
@@ -346,6 +447,46 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
 
   input.on("keypress", onKeypress);
   await done;
+
+  function rememberInputHistory(text) {
+    const value = String(text ?? "").trim();
+    if (!value) return;
+    inputHistory = inputHistory.filter((item) => item !== value);
+    inputHistory.push(value);
+    if (inputHistory.length > 100) {
+      inputHistory = inputHistory.slice(-100);
+    }
+  }
+
+  function recallInputHistory(direction) {
+    if (pastedBlocks.length > 0 || pastedImages.length > 0 || imagePastePromises.size > 0 || inputHistory.length === 0) {
+      return false;
+    }
+    if (inputHistoryIndex === null) {
+      if (direction > 0 || buffer.trim()) return false;
+      inputHistoryDraft = buffer;
+      inputHistoryIndex = inputHistory.length - 1;
+    } else {
+      inputHistoryIndex += direction;
+    }
+
+    if (inputHistoryIndex < 0) {
+      inputHistoryIndex = 0;
+    }
+    if (inputHistoryIndex >= inputHistory.length) {
+      inputHistoryIndex = null;
+      buffer = inputHistoryDraft;
+      inputHistoryDraft = "";
+    } else {
+      buffer = inputHistory[inputHistoryIndex];
+    }
+
+    insertedStarterPrompt = "";
+    completedText = "";
+    suppressSuggestionsFor = "";
+    selectedIndex = 0;
+    return true;
+  }
 }
 
 function shouldShowWaitingFor(text) {
@@ -395,8 +536,21 @@ function removeLastInputUnit(buffer, blocks, images) {
   };
 }
 
+function removeInputBlock(buffer, blocks, id) {
+  const block = blocks.find((item) => item.id === id);
+  if (!block) return { buffer, blocks };
+  const nextBuffer = `${buffer.slice(0, block.start)}${buffer.slice(block.end)}`;
+  const delta = block.start - block.end;
+  return {
+    buffer: nextBuffer,
+    blocks: blocks
+      .filter((item) => item.id !== id)
+      .map((item) => item.start > block.start ? { ...item, start: item.start + delta, end: item.end + delta } : item),
+  };
+}
+
 function readClipboardImage() {
-  if (process.platform !== "win32") return null;
+  if (process.platform !== "win32") return Promise.resolve(null);
   const script = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
@@ -413,27 +567,53 @@ $payload = [pscustomobject]@{
 }
 $payload | ConvertTo-Json -Compress
 `;
-  const result = spawnSync("powershell.exe", ["-NoProfile", "-STA", "-Command", script], {
-    encoding: "utf8",
-    windowsHide: true,
-    timeout: 5000,
-  });
-  if (result.status !== 0 || !result.stdout.trim()) return null;
-  try {
-    const payload = JSON.parse(result.stdout.trim());
-    if (!payload?.data || !payload?.mimeType) return null;
-    return {
-      width: payload.width,
-      height: payload.height,
-      image: {
-        type: "image",
-        data: payload.data,
-        mimeType: payload.mimeType,
-      },
+  return new Promise((resolve) => {
+    const child = spawn("powershell.exe", ["-NoProfile", "-STA", "-Command", script], {
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    let stdout = "";
+    let settled = false;
+    const done = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(value);
     };
-  } catch {
-    return null;
-  }
+    const timeout = setTimeout(() => {
+      child.kill();
+      done(null);
+    }, 5000);
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.on("error", () => done(null));
+    child.on("close", (status) => {
+      if (status !== 0 || !stdout.trim()) {
+        done(null);
+        return;
+      }
+      try {
+        const payload = JSON.parse(stdout.trim());
+        if (!payload?.data || !payload?.mimeType) {
+          done(null);
+          return;
+        }
+        done({
+          width: payload.width,
+          height: payload.height,
+          image: {
+            type: "image",
+            data: payload.data,
+            mimeType: payload.mimeType,
+          },
+        });
+      } catch {
+        done(null);
+      }
+    });
+  });
 }
 
 function trimTrailingBlankEdges(lines) {
@@ -446,14 +626,20 @@ function isBlankLine(line) {
   return stripAnsi(line).trim().length === 0;
 }
 
-function renderWorkingStatus(startedAt, frame, theme = buildTerminalTheme(), label = "working") {
-  const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-  const dots = ".".repeat((frame % 3) + 1);
-  return `${bold}${shimmerText(`${elapsed}s ${cleanActivityLabel(label)}${dots}`, frame, theme)}${reset}${theme.muted}`;
+function renderInputActivityLine(frame = 0, theme = buildTerminalTheme(), label = "working") {
+  const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  const spinner = frames[frame % frames.length];
+  return `  ${theme.accent}${spinner}${reset} ${theme.muted}${cleanActivityLabel(label)}${reset}`;
 }
 
 function cleanActivityLabel(value) {
   return String(value ?? "working").replace(/\s+/g, " ").trim() || "working";
+}
+
+function renderWorkingStatus(startedAt, frame, theme = buildTerminalTheme(), label = "working") {
+  const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  const dots = ".".repeat((frame % 3) + 1);
+  return `${bold}${shimmerText(`${elapsed}s ${cleanActivityLabel(label)}${dots}`, frame, theme)}${reset}${theme.muted}`;
 }
 
 function shimmerText(text, frame, theme = buildTerminalTheme()) {
@@ -466,6 +652,25 @@ function shimmerText(text, frame, theme = buildTerminalTheme()) {
       return `${color}${char}`;
     })
     .join("");
+}
+
+function alignMenuPreview(left, preview, width, theme = buildTerminalTheme()) {
+  if (!preview) return left;
+  const hint = `${theme.muted}${preview}${reset}`;
+  const gap = Math.max(2, width - visibleWidth(left) - visibleWidth(hint));
+  return `${left}${" ".repeat(gap)}${hint}`;
+}
+
+function renderStarterRecommendationLine(item, width, theme = buildTerminalTheme()) {
+  const prompt = String(item?.prompt ?? "").trim();
+  if (!prompt) return "";
+  const prefixText = width >= 42 ? "maybe start with " : "try ";
+  const hintText = width >= 52 ? " - up uses it, down clears it" : width >= 34 ? " - up use, down clear" : "";
+  const prefix = `${theme.muted}${prefixText}${reset}`;
+  const hint = hintText ? `${theme.muted}${hintText}${reset}` : "";
+  const available = Math.max(4, width - visibleWidth(prefix) - visibleWidth(hint));
+  const promptText = truncatePlain(prompt, available);
+  return `${prefix}${theme.primary}${promptText}${reset}${hint}`;
 }
 
 function renderEditorLines({ prompt, text = "", placeholder = "message..." }, width = Math.max(24, (output.columns ?? 100) - 1), theme = buildTerminalTheme()) {
@@ -525,8 +730,17 @@ function renderUserMessage(text, theme = buildTerminalTheme()) {
   const width = Math.max(24, (output.columns ?? 100) - 1);
   const contentWidth = Math.max(1, width);
   const rows = wrapPlain(`> ${text}`, contentWidth);
-  const bgLine = (content = "") => `${theme.userBg}${theme.userFg}${content.padEnd(contentWidth, " ")}${reset}`;
+  const bgLine = (content = "") => {
+    const styled = styleAttachmentLabels(content, theme, theme.userFg ?? fgReset);
+    return `${theme.userBg}${theme.userFg}${padToVisibleWidth(styled, contentWidth)}${reset}`;
+  };
   return [bgLine(), ...rows.map((row) => bgLine(row)), bgLine()].join("\n");
+}
+
+function styleAttachmentLabels(text, theme = buildTerminalTheme(), restore = fgReset) {
+  return String(text).replace(/\[(Pasted Image[^\]]*|Pasted Content[^\]]*)\]/g, (_match, inner) => {
+    return `${theme.muted}[${theme.accent}${bold}${inner}${normalIntensity}${theme.muted}]${restore}`;
+  });
 }
 
 function wrapPlain(text, width) {
@@ -541,6 +755,13 @@ function wrapPlain(text, width) {
   }
   if (rest) rows.push(rest);
   return rows;
+}
+
+function truncatePlain(text, max) {
+  const value = String(text ?? "");
+  if (value.length <= max) return value;
+  if (max <= 3) return ".".repeat(Math.max(1, max));
+  return `${value.slice(0, max - 3)}...`;
 }
 
 async function readPipe(onInput) {
@@ -564,6 +785,19 @@ function pickPlaceholder(previous = "") {
     next = values[(values.indexOf(next) + 1) % values.length];
   }
   return next;
+}
+
+function normalizeStarterRecommendations(items) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => {
+      if (typeof item === "string") return { prompt: item.trim(), description: "" };
+      return {
+        prompt: String(item?.prompt ?? item?.value ?? "").trim(),
+        description: String(item?.description ?? item?.why ?? "").trim(),
+      };
+    })
+    .filter((item) => item.prompt)
+    .slice(0, 1);
 }
 
 function loadJson(path, fallback) {

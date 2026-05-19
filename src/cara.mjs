@@ -1,17 +1,25 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import {
   buildInspectPrompt,
+  buildCaraAuthAccountStatus,
   buildCaraConsolidationPrompt,
+  buildSessionInfo,
   checkSetup,
   createCaraSession,
   defaults,
   describeRuntime,
+  fetchCodexUsageStats,
   loadCustomCommand,
+  loginCaraAuth,
   listCaraSessions,
-  reloadCustomCommands,
+  reloadCaraRuntime,
   runCaraPrompt,
+  runCaraPrintPrompt,
   saveCaraExitSummary,
+  logoutCaraAuth,
+  setCaraTheme,
   setModel,
   setProfile,
   setThinking,
@@ -31,9 +39,13 @@ function parse(argv) {
   let session = "";
   let noSession = false;
   let pickSession = false;
+  let printMode = false;
+  let model = "";
+  let profile = "";
+  let terminalTheme = "";
 
   if (args[0] === "--help" || args[0] === "-h") {
-    return { command: args[0], project, prompt, sessionMode, session, noSession, pickSession };
+    return { command: args[0], project, prompt, sessionMode, session, noSession, pickSession, printMode, model, profile, terminalTheme };
   }
 
   if (args[0] && !args[0].startsWith("-")) {
@@ -48,6 +60,15 @@ function parse(argv) {
     } else if (arg === "--thinking" && args[i + 1]) {
       defaults.thinking = args[i + 1];
       i += 1;
+    } else if (arg === "--model" && args[i + 1]) {
+      model = args[i + 1];
+      i += 1;
+    } else if (arg === "--profile" && args[i + 1]) {
+      profile = args[i + 1];
+      i += 1;
+    } else if (arg === "--theme" && args[i + 1]) {
+      terminalTheme = args[i + 1];
+      i += 1;
     } else if ((arg === "--continue" || arg === "-c")) {
       sessionMode = "continue";
     } else if (arg === "--session" && args[i + 1]) {
@@ -60,6 +81,9 @@ function parse(argv) {
       pickSession = true;
     } else if (arg === "--no-session") {
       noSession = true;
+    } else if (arg === "--print" || arg === "-p") {
+      printMode = true;
+      command = command === "chat" ? "ask" : command;
     } else {
       prompt = prompt ? `${prompt} ${arg}` : arg;
     }
@@ -90,14 +114,17 @@ function parse(argv) {
     sessionMode = "new";
   }
   if (command === "ask" && !prompt) {
-    throw new Error('Usage: cara ask "your question"');
+    throw new Error('Usage: cara ask "your question" or cara -p "your question"');
   }
-  if (!["chat", "ask", "inspect", "doctor", "sessions", "help", "--help", "-h"].includes(command)) {
+  if (!["chat", "ask", "inspect", "doctor", "sessions", "login", "logout", "auth", "account", "codexusage", "help", "--help", "-h"].includes(command)) {
     prompt = command + (prompt ? ` ${prompt}` : "");
     command = "ask";
   }
+  if (printMode && !prompt) {
+    throw new Error('Usage: cara -p "your question"');
+  }
 
-  return { command, project, prompt, sessionMode, session, noSession, pickSession };
+  return { command, project, prompt, sessionMode, session, noSession, pickSession, printMode, model, profile, terminalTheme };
 }
 
 function printDoctor(ui) {
@@ -114,9 +141,8 @@ function printDoctor(ui) {
   if (Object.values(status).some((value) => !value)) process.exit(1);
 }
 
-async function printSessions(ui, project) {
-  const sessions = await listCaraSessions({ project });
-  ui.sessions(sessions);
+async function printSessions(_ui, _project) {
+  console.log("Use `cara resume` to browse chats, or `/session` inside Cara for the current chat.");
 }
 
 async function main() {
@@ -135,6 +161,28 @@ async function main() {
     await printSessions(ui, parsed.project);
     return;
   }
+  if (parsed.command === "login") {
+    const provider = parsed.prompt || "openai-codex";
+    console.log(`Logging in to ${provider} using Pi auth...`);
+    await loginCaraAuth(provider);
+    ui.account(await buildCaraAuthAccountStatus(provider));
+    return;
+  }
+  if (parsed.command === "logout") {
+    const provider = parsed.prompt || "openai-codex";
+    console.log(`Logging out of ${provider}...`);
+    await logoutCaraAuth(provider);
+    ui.account(await buildCaraAuthAccountStatus(provider));
+    return;
+  }
+  if (parsed.command === "auth" || parsed.command === "account") {
+    ui.account(await buildCaraAuthAccountStatus(parsed.prompt || "openai-codex"));
+    return;
+  }
+  if (parsed.command === "codexusage") {
+    ui.codexUsage(await fetchCodexUsageStats());
+    return;
+  }
 
   if (parsed.pickSession) {
     const sessions = await listCaraSessions({ project: parsed.project });
@@ -143,42 +191,129 @@ async function main() {
     parsed.session = selected;
   }
 
-  const runtime = await createCaraSession({
+  const runtimeOptions = {
     project: parsed.project,
     sessionMode: parsed.sessionMode,
     session: parsed.session,
-    noSession: parsed.noSession,
-  });
-  ui = createCaraUi({ theme: runtime.theme });
-  runtime.session.subscribe((event) => ui.event(event));
-  const status = describeRuntime(runtime);
-  ui.banner({
-    project: runtime.project,
-    mode: parsed.command === "chat" ? "chat" : "one-shot",
-    thinking: status.thinking,
-    model: status.model,
-  });
+    noSession: parsed.noSession || (parsed.printMode && parsed.sessionMode === "new" && !parsed.session),
+    model: parsed.model || undefined,
+    profile: parsed.profile || undefined,
+    terminalTheme: parsed.terminalTheme || undefined,
+  };
 
-  if (runtime.modelFallbackMessage) {
-    console.log(runtime.modelFallbackMessage);
-  }
+  if (parsed.printMode || parsed.prompt) {
+    const runtime = await createCaraSession(runtimeOptions);
+    ui = createCaraUi({ openingTheme: runtime.theme, terminalTheme: runtime.terminalTheme });
 
-  if (parsed.prompt) {
+    if (parsed.printMode) {
+      if (runtime.modelFallbackMessage) {
+        console.error(runtime.modelFallbackMessage);
+      }
+      let streamedText = "";
+      const unsubscribe = runtime.session.subscribe((event) => {
+        const delta = event.type === "message_update" ? event.assistantMessageEvent : undefined;
+        if (event.message?.role === "assistant" && delta?.type === "text_delta" && typeof delta.delta === "string") {
+          streamedText += delta.delta;
+          process.stdout.write(delta.delta);
+        }
+      });
+      try {
+        const text = await runCaraPrintPrompt(runtime, parsed.prompt);
+        if (streamedText) {
+          if (!streamedText.endsWith("\n")) process.stdout.write("\n");
+        } else if (text) {
+          process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+        }
+      } finally {
+        unsubscribe?.();
+        runtime.session.dispose();
+      }
+      return;
+    }
+
+    runtime.session.subscribe((event) => ui.event(event));
+    const status = describeRuntime(runtime);
+    ui.banner(status);
+    if (runtime.modelFallbackMessage) {
+      console.log(runtime.modelFallbackMessage);
+    }
     await runCaraPrompt(runtime, parsed.prompt);
     ui.done();
     runtime.session.dispose();
     return;
   }
 
+  const stopStarting = ui.starting("Starting agent");
+  const runtime = await createCaraSession(runtimeOptions).finally(stopStarting);
+  ui.setTheme(runtime.terminalTheme);
+  ui.banner(describeRuntime(runtime));
+  runtime.session.subscribe((event) => ui.event(event));
+  if (runtime.modelFallbackMessage) {
+    ui.info(runtime.modelFallbackMessage);
+  }
+
   let exitRequested = false;
+  let restartRequested = false;
+  let activeRun = false;
+  let pendingMidRunInputs = [];
+  let abortRequested = false;
+  let suppressNextAbortError = false;
+
+  const runPromptTurn = async (submission) => {
+    const text = getSubmissionText(submission);
+    const slashResult = await handleSlash(runtime, ui, text);
+    if (slashResult) {
+      restartRequested = slashResult === "restart";
+      exitRequested = restartRequested || isExitInput(text);
+      if (!exitRequested) {
+        await drainPendingMidRunInputs();
+      }
+      return exitRequested;
+    }
+    await runCaraPrompt(runtime, text, getSubmissionOptions(submission));
+    await drainPendingMidRunInputs();
+    return false;
+  };
+
+  const drainPendingMidRunInputs = async () => {
+    if (abortRequested || pendingMidRunInputs.length === 0) return;
+    const updates = pendingMidRunInputs;
+    pendingMidRunInputs = [];
+    const followUp = buildMidRunFollowUpPrompt(updates);
+    await runCaraPrompt(runtime, followUp);
+    await drainPendingMidRunInputs();
+  };
+
   await ui.interactive(async (submission) => {
     try {
       const text = getSubmissionText(submission);
-      if (await handleSlash(runtime, ui, text)) {
-        exitRequested = isExitInput(text);
-        return exitRequested;
+      if (activeRun) {
+        if (isHardInterruptInput(text)) {
+          abortRequested = true;
+          suppressNextAbortError = true;
+          pendingMidRunInputs = [];
+          ui.info("Stopping this run.");
+          await runtime.session.abort?.();
+          return false;
+        }
+        pendingMidRunInputs.push(text);
+        ui.info("Got it — I’ll fold that in after this step.");
+        return false;
       }
-      await runCaraPrompt(runtime, text, getSubmissionOptions(submission));
+
+      activeRun = true;
+      abortRequested = false;
+      try {
+        return await runPromptTurn(submission);
+      } catch (error) {
+        if (!(suppressNextAbortError && isExpectedAbortError(error))) {
+          ui.error(error);
+        }
+      } finally {
+        activeRun = false;
+        abortRequested = false;
+        suppressNextAbortError = false;
+      }
     } catch (error) {
       ui.error(error);
     }
@@ -186,9 +321,20 @@ async function main() {
   }, {
     suggestions: (text) => getSlashSuggestions(runtime, text),
     applySuggestion: applySlashSuggestion,
+    onSuggestionSelect: (item) => {
+      if (item?.kind === "theme" && item.previewTheme) {
+        ui.setTheme(item.previewTheme);
+      } else {
+        ui.setTheme(runtime.terminalTheme);
+      }
+    },
     statusLine: (width, state) => renderStatusLine(runtime, width, state),
-    theme: runtime.theme,
+    theme: runtime.terminalTheme,
   });
+  if (restartRequested) {
+    restartCaraProcess(runtime);
+    return;
+  }
   if (exitRequested) {
     const exitSummary = ui.goodbye(describeRuntime(runtime));
     saveCaraExitSummary(runtime, exitSummary);
@@ -235,22 +381,70 @@ async function handleSlash(runtime, ui, input) {
     ui.memory(describeRuntime(runtime));
     return true;
   }
-  if (command === "/reload") {
-    const commands = reloadCustomCommands(runtime);
-    ui.info(`Reloaded ${commands.length} custom command${commands.length === 1 ? "" : "s"}.`);
+  if (command === "/auth" || command === "/account") {
+    ui.beginProgress("Account status");
+    try {
+      ui.account(await buildCaraAuthAccountStatus(arg || "openai-codex"));
+    } finally {
+      ui.endProgress();
+    }
     return true;
+  }
+  if (command === "/codexusage" || command === "/usage") {
+    ui.info("Checking Codex usage...");
+    ui.codexUsage(await fetchCodexUsageStats());
+    return true;
+  }
+  if (command === "/login") {
+    const provider = arg || "openai-codex";
+    ui.beginProgress("ChatGPT login");
+    try {
+      await loginCaraAuth(provider, { onMessage: (message) => ui.info(message) });
+      ui.account(await buildCaraAuthAccountStatus(provider));
+    } finally {
+      ui.endProgress();
+    }
+    return true;
+  }
+  if (command === "/logout") {
+    const provider = arg || "openai-codex";
+    ui.info(`Logging out of ${provider}...`);
+    await logoutCaraAuth(provider);
+    ui.account(await buildCaraAuthAccountStatus(provider));
+    return true;
+  }
+  if (command === "/reload") {
+    if (arg.trim() === "--soft") {
+      ui.info("Reloading commands, themes, prompt, and memory without restarting...");
+      const result = await reloadCaraRuntime(runtime);
+      ui.setTheme(result.theme);
+      ui.info(`Reloaded resources: ${result.commands} command${result.commands === 1 ? "" : "s"}, ${result.themes} theme${result.themes === 1 ? "" : "s"}.`);
+      return true;
+    }
+    ui.info("Reloading Cara from disk and resuming this chat...");
+    return "restart";
   }
   if (command === "/consolidate") {
     await runCaraPrompt(runtime, buildCaraConsolidationPrompt(runtime));
     return true;
   }
-  if (command === "/sessions" || command === "/chats") {
-    ui.sessions(await listCaraSessions({ project: runtime.project, sessions: runtime.sessions }));
+  if (command === "/session" || command === "/chat") {
+    ui.sessionInfo(buildSessionInfo(runtime));
     return true;
   }
   if (command === "/thinking" || command === "/effort") {
     const level = setThinking(runtime, arg);
     ui.info(`Thinking: ${level}`);
+    return true;
+  }
+  if (command === "/themes" || command === "/theme") {
+    if (!arg) {
+      ui.themes(describeRuntime(runtime).themes, runtime.terminalTheme?.name);
+      return true;
+    }
+    const theme = setCaraTheme(runtime, arg);
+    ui.setTheme(theme);
+    ui.info(`Theme: ${theme.name}`);
     return true;
   }
   if (command === "/models") {
@@ -272,9 +466,61 @@ async function handleSlash(runtime, ui, input) {
   return true;
 }
 
+function restartCaraProcess(runtime) {
+  const sessionManager = runtime.session.sessionManager;
+  const selector = sessionManager.getSessionId?.() || sessionManager.getSessionFile?.();
+  const args = [path.join(runtime.root, "bin", "cara.mjs")];
+  if (selector) {
+    args.push("resume", selector);
+  } else {
+    args.push("new");
+  }
+  args.push("--project", runtime.project);
+  if (runtime.profile) args.push("--profile", runtime.profile);
+  if (runtime.terminalTheme?.name) args.push("--theme", runtime.terminalTheme.name);
+
+  runtime.session.dispose();
+  const result = spawnSync(process.execPath, args, {
+    stdio: "inherit",
+    cwd: runtime.root,
+    env: {
+      ...process.env,
+      CARA_CALLER_CWD: runtime.project,
+    },
+  });
+
+  if (result.error) {
+    console.error(result.error.message);
+    process.exit(1);
+  }
+  process.exit(result.status ?? 0);
+}
+
 function isExitInput(input) {
   const text = input.trim().toLowerCase();
   return text === "/exit" || text === "/quit" || text === "exit" || text === "quit";
+}
+
+function isHardInterruptInput(input) {
+  const text = String(input ?? "").trim().toLowerCase();
+  return /^(stop|wait|cancel|pause|hold on|nevermind|never mind|wrong|don'?t|do not|abort)\b/.test(text);
+}
+
+function buildMidRunFollowUpPrompt(inputs) {
+  const body = inputs
+    .map((input, index) => `${index + 1}. ${String(input ?? "").trim()}`)
+    .filter((line) => !/^\d+\.\s*$/.test(line))
+    .join("\n");
+  return `The user sent the following while you were already working. Treat it as updated instruction/context for the same task, and continue from the current state without restarting unnecessarily.\n\n${body}`;
+}
+
+function isExpectedAbortError(error) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /\babort(?:ed)?\b|cancel(?:led|ed)?/i.test(message);
+}
+
+function shouldShowStartupRecommendations(parsed) {
+  return parsed.command === "chat" && parsed.sessionMode === "new" && !parsed.session && !parsed.prompt;
 }
 
 function getSubmissionText(submission) {

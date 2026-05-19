@@ -57,6 +57,56 @@ export function renderStatusBox(status = {}, theme = fallbackTheme, terminalColu
   ];
 }
 
+export function renderAccountStatusBox(account = {}, theme = fallbackTheme, terminalColumns = 100) {
+  const width = Math.max(68, Math.min(116, Number(terminalColumns || 100) - 1));
+  const contentWidth = Math.max(24, width - 4);
+  const valueWidth = Math.max(16, contentWidth - 10);
+  const status = account.status?.configured ? "logged in" : "not logged in";
+  const source = account.status?.source ? ` (${account.status.source})` : "";
+  const rows = [
+    `${bold}${theme.primary}ChatGPT / Codex account${reset} ${theme.muted}${account.provider ?? "openai-codex"}${reset}`,
+    `${theme.muted}account, token, plan, and quota windows${reset}`,
+    "",
+    statusField("status", `${status}${source}`, theme, valueWidth, account.status?.configured ? theme.success : theme.error),
+    statusField("email", `${account.email ?? "unknown"}${account.emailVerified === true ? " ✓" : ""}`, theme, valueWidth, theme.info),
+    statusField("plan", account.plan ?? "unknown", theme, valueWidth, theme.accent),
+    statusField("account", shortAccountId(account.accountId), theme, valueWidth),
+    statusField("token", account.tokenExpiresAt ? `expires ${formatAccountDateTime(account.tokenExpiresAt)}` : "unknown", theme, valueWidth),
+    "",
+  ];
+
+  if (account.usage) {
+    rows.push(...renderLimitRows(account.usage, theme));
+  } else if (account.usageError) {
+    rows.push(statusField("limits", `unavailable - ${account.usageError}`, theme, valueWidth, theme.warning));
+  } else {
+    rows.push(statusField("limits", "not checked", theme, valueWidth));
+  }
+  rows.push("", statusField("updated", formatAccountDateTime(account.updatedAt), theme, valueWidth));
+
+  return renderBox(rows, theme, width, contentWidth);
+}
+
+export function renderCodexUsageBox(stats = {}, theme = fallbackTheme, terminalColumns = 100) {
+  const width = Math.max(68, Math.min(116, Number(terminalColumns || 100) - 1));
+  const contentWidth = Math.max(24, width - 4);
+  const valueWidth = Math.max(16, contentWidth - 10);
+  const rows = [
+    `${bold}${theme.primary}Codex usage${reset} ${theme.muted}quota + reset windows${reset}`,
+    "",
+  ];
+  if (stats.account) rows.push(statusField("account", stats.account, theme, valueWidth, theme.info));
+  rows.push(
+    statusField("source", stats.source ?? "unknown", theme, valueWidth),
+    statusField("plan", stats.plan ?? "unknown", theme, valueWidth, theme.accent),
+    "",
+    ...renderLimitRows(stats, theme),
+    "",
+    statusField("updated", formatAccountDateTime(stats.updatedAt), theme, valueWidth),
+  );
+  return renderBox(rows, theme, width, contentWidth);
+}
+
 export function renderRetryBlock(event, theme = fallbackTheme, terminalColumns = 100) {
   const width = Math.max(24, Number(terminalColumns || 100) - 1);
   const contentWidth = Math.max(1, width);
@@ -78,8 +128,8 @@ function progressBar(percent, theme = fallbackTheme) {
   return `[${color}${"#".repeat(filled)}${theme.muted}${"-".repeat(width - filled)}${reset}]`;
 }
 
-function statusField(label, value, theme = fallbackTheme, valueWidth = 80) {
-  return `${theme.warning}${label.padEnd(8)}${reset} ${truncatePlain(String(value ?? "none"), valueWidth)}`;
+function statusField(label, value, theme = fallbackTheme, valueWidth = 80, valueStyle = "") {
+  return `${theme.warning}${label.padEnd(8)}${reset} ${valueStyle}${truncatePlain(String(value ?? "none"), valueWidth)}${reset}`;
 }
 
 function renderContextLine(status = {}, theme = fallbackTheme) {
@@ -198,6 +248,86 @@ function truncatePlain(value, max) {
 function padDisplay(text, width) {
   const value = String(text);
   return `${value}${" ".repeat(Math.max(0, width - stripAnsi(value).length))}`;
+}
+
+function renderBox(rows, theme, width, contentWidth) {
+  const border = `${theme.primary}+${"-".repeat(width - 2)}+${reset}`;
+  const divider = `${theme.primary}|${reset}${theme.muted}${"-".repeat(width - 2)}${reset}${theme.primary}|${reset}`;
+  return [
+    "",
+    border,
+    ...rows.flatMap((row) => row === "" ? [divider] : wrapStatusRow(row, contentWidth).map((line) => boxedStatusLine(line, contentWidth, theme))),
+    border,
+    "",
+  ];
+}
+
+function renderLimitRows(usage = {}, theme = fallbackTheme) {
+  const rows = [
+    `${theme.accent}${"limits".padEnd(8)}${reset} ${formatAccountLimit("Session (5h)", usage.primary, theme)}`,
+    `${theme.accent}${"".padEnd(8)}${reset} ${formatAccountLimit("Week (7d)", usage.secondary, theme)}`,
+  ];
+  for (const item of usage.additional ?? []) {
+    if (item.primary?.usedPercent > 0) rows.push(`${theme.accent}${"".padEnd(8)}${reset} ${formatAccountLimit(`${item.name || "Additional"} (5h)`, item.primary, theme)}`);
+    if (item.secondary?.usedPercent > 0) rows.push(`${theme.accent}${"".padEnd(8)}${reset} ${formatAccountLimit(`${item.name || "Additional"} (7d)`, item.secondary, theme)}`);
+  }
+  if (usage.codeReview) rows.push(`${theme.accent}${"".padEnd(8)}${reset} ${formatAccountLimit("Code review", usage.codeReview, theme)}`);
+  return rows;
+}
+
+function formatAccountLimit(label, bucket, theme = fallbackTheme) {
+  if (!bucket) return `${label.padEnd(16)} ${theme.muted}unknown${reset}`;
+  const used = clamp(Number(bucket.usedPercent) || 0, 0, 100);
+  const left = Math.max(0, 100 - used);
+  const tone = usageTone(used, theme);
+  return [
+    `${bold}${label.padEnd(16)}${reset}`,
+    usageBar(used, theme),
+    `${tone}${bold}${formatPercent(used).padStart(5)}${reset} ${theme.muted}used${reset}`,
+    `${theme.success}${bold}${formatPercent(left).padStart(5)}${reset} ${theme.muted}left${reset}`,
+    formatAccountReset(bucket.resetAt, theme),
+  ].filter(Boolean).join("  ");
+}
+
+function usageBar(percent, theme = fallbackTheme) {
+  const width = 18;
+  const value = clamp(Number(percent) || 0, 0, 100);
+  const filled = value > 0 ? Math.max(1, Math.round((value / 100) * width)) : 0;
+  return `${usageTone(value, theme)}${"█".repeat(filled)}${theme.muted}${"░".repeat(width - filled)}${reset}`;
+}
+
+function usageTone(percent, theme = fallbackTheme) {
+  if (percent >= 80) return theme.error;
+  if (percent >= 55) return theme.warning;
+  return theme.success;
+}
+
+function formatAccountReset(iso, theme = fallbackTheme) {
+  if (!iso) return "";
+  const millis = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(millis) || millis <= 0) return "";
+  return `${theme.muted}resets in ${formatAccountDuration(millis)}${reset}`;
+}
+
+function formatAccountDuration(millis) {
+  const minutes = Math.max(0, Math.round(millis / 60000));
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const mins = minutes % 60;
+  if (days > 0) return `${days}d${hours ? ` ${hours}h` : ""}`;
+  if (hours > 0) return `${hours}h${mins ? `${mins}m` : ""}`;
+  return `${mins}m`;
+}
+
+function formatAccountDateTime(iso) {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? String(iso ?? "unknown") : date.toLocaleString();
+}
+
+function shortAccountId(value) {
+  const text = String(value ?? "");
+  if (!text) return "unknown";
+  return text.length <= 14 ? text : `${text.slice(0, 8)}…${text.slice(-4)}`;
 }
 
 function stripAnsi(text) {

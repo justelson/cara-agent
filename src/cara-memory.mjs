@@ -1,7 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const MEMORY_DIR = ".cara/memory";
+let memoryCache;
+
 const LAYERS = [
   {
     file: "cara-profile.md",
@@ -59,6 +61,16 @@ const LAYERS = [
     ],
   },
   {
+    file: "recommended-prompts.md",
+    title: "Recommended Prompts",
+    seed: [
+      "# Recommended Prompts",
+      "",
+      "- Prompt: /start",
+      "  Why: get a fresh map of this project without reopening an old chat.",
+    ],
+  },
+  {
     file: "consolidation-log.md",
     title: "Consolidation Log",
     seed: [
@@ -83,11 +95,18 @@ export function ensureCaraMemory(root) {
 
 export function readCaraMemory(root) {
   const dir = getMemoryDir(root);
-  return LAYERS.map((layer) => {
+  const signature = memorySignature(dir);
+  if (memoryCache?.root === path.resolve(root) && memoryCache.signature === signature) {
+    return memoryCache.layers;
+  }
+
+  const layers = LAYERS.map((layer) => {
     const file = path.join(dir, layer.file);
     const text = existsSync(file) ? readFileSync(file, "utf8").trim() : "";
     return { ...layer, path: file, text };
   });
+  memoryCache = { root: path.resolve(root), signature, layers };
+  return layers;
 }
 
 export function buildMemoryOverview(root) {
@@ -116,6 +135,12 @@ export function buildLayeredMemoryPrompt(root) {
   return sections.trim();
 }
 
+export function buildRecommendedPrompts(root, limit = 1) {
+  const layer = ensureCaraMemory(root).find((item) => item.file === "recommended-prompts.md");
+  if (!layer) return [];
+  return extractRecommendedPrompts(layer.text).slice(0, limit);
+}
+
 export function buildConsolidationPrompt(runtime, globalAgentFiles = []) {
   const root = runtime.root;
   const layers = ensureCaraMemory(root);
@@ -135,6 +160,7 @@ Goal:
 - Keep raw one-off details out unless they explain a durable pattern.
 - Remove duplicates, stale phrasing, and vague filler.
 - Keep the memory about how to help Cara learn, how she responds, what overwhelms her, what helps her return, what projects/tools matter, and what boundaries must be preserved.
+- Refresh Recommended Prompts with one concrete prompt for the next new chat, based on stable memory and unfinished work, not a raw session dump.
 - If the agent behavior guidance itself should change, make a small careful update to the main AGENTS.md guidance file instead of writing a chat essay.
 
 Memory layers:
@@ -158,6 +184,15 @@ function getMemoryDir(root) {
   return path.join(root, MEMORY_DIR);
 }
 
+function memorySignature(dir) {
+  return LAYERS.map((layer) => {
+    const file = path.join(dir, layer.file);
+    if (!existsSync(file)) return `${layer.file}:missing`;
+    const stat = statSync(file);
+    return `${layer.file}:${stat.mtimeMs}:${stat.size}`;
+  }).join("|");
+}
+
 function extractBullets(text) {
   return String(text)
     .split(/\r?\n/)
@@ -165,4 +200,35 @@ function extractBullets(text) {
     .filter((line) => line.startsWith("- "))
     .map((line) => line.slice(2).trim())
     .filter(Boolean);
+}
+
+function extractRecommendedPrompts(text) {
+  const items = [];
+  let current = null;
+
+  for (const rawLine of String(text).split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const promptMatch = line.match(/^-\s*(?:Prompt:\s*)?(.+)$/i);
+    if (promptMatch) {
+      const prompt = promptMatch[1].trim();
+      if (/^(still empty|consolidation should|no manual)/i.test(prompt)) continue;
+      current = { prompt, description: "" };
+      items.push(current);
+      continue;
+    }
+
+    const whyMatch = line.match(/^(?:Why|Description|Reason):\s*(.+)$/i);
+    if (whyMatch && current) {
+      current.description = whyMatch[1].trim();
+    }
+  }
+
+  return items
+    .map((item) => ({
+      prompt: item.prompt.replace(/^["']|["']$/g, "").trim(),
+      description: item.description,
+    }))
+    .filter((item) => item.prompt && !item.prompt.startsWith("#"));
 }
