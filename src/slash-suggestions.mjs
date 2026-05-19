@@ -4,6 +4,7 @@ import { applyFileMentionSuggestion, getFileMentionSuggestions } from "./file-me
 const COMMANDS = [
   { value: "/commands", label: "/commands", description: "show controls", kind: "command", submitOnEnter: true },
   { value: "/start", label: "/start", description: "ask for the repo starting point", kind: "command", submitOnEnter: true },
+  { value: "/new", label: "/new", description: "fresh chat like Pi", kind: "command", submitOnEnter: true },
   { value: "/status", label: "/status", description: "project, model, thinking", kind: "command", submitOnEnter: true },
   { value: "/profile", label: "/profile", description: "show or switch elson/cara mode", kind: "command" },
   { value: "/thinking", label: "/thinking", description: "cycle or set thinking effort", kind: "command" },

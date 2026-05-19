@@ -235,6 +235,7 @@ ${bold}Slash commands${reset}
   --profile <name>     auto, elson, cara
   --theme <name>       choose terminal theme on startup
   /start                ask the agent for the project starting point
+  /new                  fresh chat, no previous messages
   /status               show project, model, and thinking
   /profile              show active profile
   /profile <name>       auto, elson, cara

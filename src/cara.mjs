@@ -289,7 +289,7 @@ async function main() {
   }
 
   let exitRequested = false;
-  let restartRequested = false;
+  let restartMode = "";
   let activeRun = false;
   let pendingMidRunInputs = [];
   let abortRequested = false;
@@ -299,8 +299,8 @@ async function main() {
     const text = getSubmissionText(submission);
     const slashResult = await handleSlash(runtime, ui, text);
     if (slashResult) {
-      restartRequested = slashResult === "restart";
-      exitRequested = restartRequested || isExitInput(text);
+      restartMode = slashResult === "restart" || slashResult === "new" ? slashResult : "";
+      exitRequested = Boolean(restartMode) || isExitInput(text);
       if (!exitRequested) {
         await drainPendingMidRunInputs();
       }
@@ -367,8 +367,8 @@ async function main() {
     statusLine: (width, state) => renderStatusLine(runtime, width, state),
     theme: runtime.terminalTheme,
   });
-  if (restartRequested) {
-    restartCaraProcess(runtime);
+  if (restartMode) {
+    restartCaraProcess(runtime, { mode: restartMode });
     return;
   }
   if (exitRequested) {
@@ -460,6 +460,10 @@ async function handleSlash(runtime, ui, input) {
     ui.info("Reloading Cara from disk and resuming this chat...");
     return "restart";
   }
+  if (command === "/new") {
+    ui.info("Starting a fresh Cara chat...");
+    return "new";
+  }
   if (command === "/consolidate") {
     await runCaraPrompt(runtime, buildCaraConsolidationPrompt(runtime));
     return true;
@@ -502,11 +506,13 @@ async function handleSlash(runtime, ui, input) {
   return true;
 }
 
-function restartCaraProcess(runtime) {
+function restartCaraProcess(runtime, options = {}) {
   const sessionManager = runtime.session.sessionManager;
   const selector = sessionManager.getSessionId?.() || sessionManager.getSessionFile?.();
   const args = [path.join(runtime.root, "bin", "cara.mjs")];
-  if (selector) {
+  if (options.mode === "new") {
+    args.push("new");
+  } else if (selector) {
     args.push("resume", selector);
   } else {
     args.push("new");
@@ -514,6 +520,7 @@ function restartCaraProcess(runtime) {
   args.push("--project", runtime.project);
   if (runtime.profile) args.push("--profile", runtime.profile);
   if (runtime.terminalTheme?.name) args.push("--theme", runtime.terminalTheme.name);
+  if (runtime.session.model) args.push("--model", `${runtime.session.model.provider}/${runtime.session.model.id}`);
 
   runtime.session.dispose();
   const result = spawnSync(process.execPath, args, {
