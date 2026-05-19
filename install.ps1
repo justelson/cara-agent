@@ -54,6 +54,18 @@ function Get-InitialRoot {
   return (Get-Location).Path
 }
 
+function Test-CaraRoot($Dir) {
+  $packagePath = Join-Path $Dir "package.json"
+  $cliPath = Join-Path $Dir "bin\cara.mjs"
+  if (-not (Test-Path $packagePath) -or -not (Test-Path $cliPath)) { return $false }
+  try {
+    $package = Get-Content -Raw $packagePath | ConvertFrom-Json
+    return ($package.name -eq "cara" -and $package.bin.cara)
+  } catch {
+    return $false
+  }
+}
+
 function Refresh-NodePath {
   $nodeDirs = @(
     $PortableNodeDir,
@@ -244,11 +256,11 @@ function Ensure-PathEntry($Dir) {
 }
 
 $Root = Get-InitialRoot
-if (-not (Test-Path (Join-Path $Root "package.json"))) {
+if (-not (Test-CaraRoot $Root)) {
   try {
     $Root = Download-CaraSource $InstallDir
   } catch {
-    if (Test-Path (Join-Path $InstallDir "package.json")) {
+    if (Test-CaraRoot $InstallDir) {
       Write-Host "Download failed; using existing Cara install at $InstallDir"
       $Root = $InstallDir
     } else {
