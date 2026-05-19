@@ -88,7 +88,7 @@ The CLI runs on Node. Pi is now a normal package dependency of Cara, so it no lo
 
 ## Install the terminal command
 
-Fresh Windows install from GitHub:
+Fresh Windows install from GitHub, once the repo or release asset is public/accessible:
 
 ```powershell
 irm https://raw.githubusercontent.com/justelson/cara-agent/master/install.ps1 | iex
