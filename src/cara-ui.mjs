@@ -228,6 +228,7 @@ ${bold}Slash commands${reset}
   cara codexusage       show current Codex quota usage
   cara login            login with ChatGPT Plus/Pro via Pi auth
   cara logout           clear stored ChatGPT/Codex auth
+  cara --update         update this Cara install from GitHub
   -p, --print "..."     print one answer and exit
   --model <provider/model>
                        choose model for startup or print

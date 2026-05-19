@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { copyFileSync } from "node:fs";
+import os from "node:os";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import {
@@ -81,6 +83,8 @@ function parse(argv) {
       pickSession = true;
     } else if (arg === "--no-session") {
       noSession = true;
+    } else if (arg === "--update") {
+      command = "update";
     } else if (arg === "--print" || arg === "-p") {
       printMode = true;
       command = command === "chat" ? "ask" : command;
@@ -116,7 +120,7 @@ function parse(argv) {
   if (command === "ask" && !prompt) {
     throw new Error('Usage: cara ask "your question" or cara -p "your question"');
   }
-  if (!["chat", "ask", "inspect", "doctor", "sessions", "login", "logout", "auth", "account", "codexusage", "help", "--help", "-h"].includes(command)) {
+  if (!["chat", "ask", "inspect", "doctor", "sessions", "login", "logout", "auth", "account", "codexusage", "update", "help", "--help", "-h"].includes(command)) {
     prompt = command + (prompt ? ` ${prompt}` : "");
     command = "ask";
   }
@@ -125,6 +129,34 @@ function parse(argv) {
   }
 
   return { command, project, prompt, sessionMode, session, noSession, pickSession, printMode, model, profile, terminalTheme };
+}
+
+function runUpdate() {
+  const root = defaults.root;
+  if (process.platform === "win32") {
+    const script = path.join(root, "install.ps1");
+    const tempScript = path.join(os.tmpdir(), `cara-update-${process.pid}.ps1`);
+    copyFileSync(script, tempScript);
+    process.chdir(os.tmpdir());
+    const result = spawnSync("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      tempScript,
+      "-InstallDir",
+      root,
+      "-Update",
+      "-Yes",
+    ], { stdio: "inherit", cwd: os.tmpdir() });
+    if (result.error) throw result.error;
+    process.exit(result.status ?? 1);
+  }
+
+  const script = path.join(root, "install.sh");
+  const result = spawnSync("bash", [script], { stdio: "inherit" });
+  if (result.error) throw result.error;
+  process.exit(result.status ?? 1);
 }
 
 function printDoctor(ui) {
@@ -159,6 +191,10 @@ async function main() {
   }
   if (parsed.command === "sessions") {
     await printSessions(ui, parsed.project);
+    return;
+  }
+  if (parsed.command === "update") {
+    runUpdate();
     return;
   }
   if (parsed.command === "login") {

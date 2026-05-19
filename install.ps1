@@ -4,6 +4,7 @@ param(
   [string]$Ref = "master",
   [string]$InstallDir = "$env:LOCALAPPDATA\Cara",
   [switch]$NoPathUpdate,
+  [switch]$Update,
   [switch]$Yes
 )
 
@@ -219,23 +220,12 @@ function Download-CaraSource($TargetDir) {
   if (-not $source) { throw "Downloaded Cara archive did not contain a source folder." }
 
   if (Test-Path $TargetDir) {
-    New-Item -ItemType Directory -Force -Path $preserve | Out-Null
-    foreach ($name in @(".deps", "node_modules")) {
-      $existing = Join-Path $TargetDir $name
-      if (Test-Path $existing) {
-        Move-Item -Force $existing (Join-Path $preserve $name)
-      }
-    }
-    Remove-Item -Recurse -Force $TargetDir
+    Get-ChildItem -Force $TargetDir | Where-Object { $_.Name -notin @(".deps", "node_modules") } | Remove-Item -Recurse -Force
+  } else {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $TargetDir) | Out-Null
+    New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
   }
-  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $TargetDir) | Out-Null
-  Copy-Item -Recurse -Force $source.FullName $TargetDir
-  foreach ($name in @(".deps", "node_modules")) {
-    $saved = Join-Path $preserve $name
-    if (Test-Path $saved) {
-      Move-Item -Force $saved (Join-Path $TargetDir $name)
-    }
-  }
+  Copy-Item -Recurse -Force (Join-Path $source.FullName "*") $TargetDir
   Remove-Item -Recurse -Force $temp
   return $TargetDir
 }
@@ -256,7 +246,13 @@ function Ensure-PathEntry($Dir) {
 }
 
 $Root = Get-InitialRoot
-if (-not (Test-CaraRoot $Root)) {
+if ($Update) {
+  if (Test-Path (Join-Path $InstallDir ".git")) {
+    throw "Refusing to overwrite a git checkout at $InstallDir. Use git pull there, or install Cara to %LOCALAPPDATA%\Cara."
+  }
+  Write-Host "Updating Cara in $InstallDir"
+  $Root = Download-CaraSource $InstallDir
+} elseif (-not (Test-CaraRoot $Root)) {
   try {
     $Root = Download-CaraSource $InstallDir
   } catch {

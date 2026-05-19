@@ -134,6 +134,12 @@ For unattended installs, pass `-Yes`:
 .\install.ps1 -Yes
 ```
 
+To update an existing Cara install later:
+
+```powershell
+cara --update
+```
+
 A GitHub release can now ship this repo/package without requiring a separate Pi checkout.
 
 ## Auth setup
@@ -185,6 +191,7 @@ These are useful for Elson, testing, and repeat workflows. They are not required
 .\cara.ps1 codexusage
 .\cara.ps1 login
 .\cara.ps1 logout
+.\cara.ps1 --update
 .\cara.ps1 sessions
 .\cara.ps1 continue
 .\cara.ps1 resume

@@ -5,9 +5,33 @@ import { fileURLToPath } from "node:url";
 const reset = "\x1b[0m";
 const terminalThemeMarker = Symbol.for("cara.terminalTheme");
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-export const DEFAULT_TERMINAL_THEME = "quiet";
+export const DEFAULT_TERMINAL_THEME = "rose-pine";
 
 const localBuiltInThemes = [
+  {
+    name: "rose-pine",
+    description: "Dark rose and pine palette. Cara's default room.",
+    source: "built-in",
+    colors: {
+      muted: "#6e6a86",
+      primary: "#eb6f92",
+      success: "#9ccfd8",
+      warning: "#f6c177",
+      error: "#eb6f92",
+      accent: "#c4a7e7",
+      info: "#31748f",
+      editorBorder: "#26233a",
+      userBg: "#191724",
+      userFg: "#e0def4",
+      toolBg: "#1f1d2e",
+      toolSuccessBg: "#192b32",
+      toolErrorBg: "#321f2b",
+      toolFg: "#e0def4",
+      toolTitleFg: "#f4ede8",
+      toolDetailFg: "#908caa",
+      toolHintFg: "#6e6a86",
+    },
+  },
   {
     name: "quiet",
     description: "Muted Pi-like default. Low color, low glare.",
