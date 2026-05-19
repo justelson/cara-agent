@@ -24,6 +24,7 @@
     "README.md",
     "bin",
     "commands",
+    "install.cmd",
     "install.ps1",
     "install.sh",
     "scripts",

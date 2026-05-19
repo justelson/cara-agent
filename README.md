@@ -88,10 +88,16 @@ The CLI runs on Node. Pi is now a normal package dependency of Cara, so it no lo
 
 ## Install the terminal command
 
-Fresh Windows install from GitHub, once the repo or release asset is public/accessible:
+Fresh Windows install from PowerShell, once the repo or release asset is public/accessible:
 
 ```powershell
 irm https://raw.githubusercontent.com/justelson/cara-agent/master/install.ps1 | iex
+```
+
+Fresh Windows install from Command Prompt (`cmd.exe`):
+
+```cmd
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/justelson/cara-agent/master/install.ps1 | iex"
 ```
 
 That downloads Cara into:
@@ -102,10 +108,16 @@ That downloads Cara into:
 
 and adds the `cara` command to the user PATH.
 
-From a local clone of this repo, install the same command with:
+From a local clone of this repo, install the same command with PowerShell:
 
 ```powershell
 .\install.ps1
+```
+
+or with Command Prompt:
+
+```cmd
+install.cmd
 ```
 
 On macOS/Linux:
