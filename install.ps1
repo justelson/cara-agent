@@ -26,6 +26,27 @@ function Require-Confirmation($Message, $DeclineMessage) {
   }
 }
 
+function Invoke-PackageInstall($Root) {
+  Push-Location $Root
+  try {
+    if (Has-Command bun.exe) {
+      & bun.exe install
+    } elseif (Has-Command bun) {
+      & bun install
+    } elseif (Has-Command npm.cmd) {
+      & npm.cmd install
+    } elseif (Has-Command npm.exe) {
+      & npm.exe install
+    } elseif (Has-Command npm) {
+      cmd.exe /d /s /c "npm install"
+    } else {
+      throw "npm is missing even though Node is installed. Reinstall Node LTS, then rerun install.ps1."
+    }
+  } finally {
+    Pop-Location
+  }
+}
+
 function Get-InitialRoot {
   $scriptPath = $PSCommandPath
   if (-not $scriptPath) { $scriptPath = $MyInvocation.MyCommand.Path }
@@ -233,18 +254,7 @@ if ($NeedsDependencies) {
 }
 
 Write-Host "Installing Cara dependencies..."
-Push-Location $Root
-try {
-  if (Has-Command bun) {
-    bun install
-  } elseif (Has-Command npm) {
-    npm install
-  } else {
-    throw "npm is missing even though Node is installed. Reinstall Node LTS, then rerun install.ps1."
-  }
-} finally {
-  Pop-Location
-}
+Invoke-PackageInstall $Root
 
 if (-not $NoPathUpdate) {
   Ensure-PathEntry $Root
