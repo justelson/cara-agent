@@ -245,6 +245,21 @@ function Ensure-PathEntry($Dir) {
   }
 }
 
+function Ensure-CaraCommand($Root) {
+  $shimDir = Join-Path $Root "shims"
+  $shim = Join-Path $shimDir "cara.cmd"
+  New-Item -ItemType Directory -Force -Path $shimDir | Out-Null
+  $content = @"
+@echo off
+setlocal
+set "CARA_ROOT=%~dp0.."
+call "%CARA_ROOT%\cara.cmd" %*
+exit /b %ERRORLEVEL%
+"@
+  Set-Content -Path $shim -Value $content -Encoding ASCII
+  return $shimDir
+}
+
 $Root = Get-InitialRoot
 if ($Update) {
   if (Test-Path (Join-Path $InstallDir ".git")) {
@@ -282,12 +297,13 @@ if ($NeedsDependencies) {
 Write-Host "Installing Cara dependencies..."
 Invoke-PackageInstall $Root
 
+$CaraCommandDir = Ensure-CaraCommand $Root
 if (-not $NoPathUpdate) {
-  Ensure-PathEntry $Root
+  Ensure-PathEntry $CaraCommandDir
 }
 
 Write-Host "Checking install..."
-& (Join-Path $Root "cara.cmd") doctor
+& (Join-Path $CaraCommandDir "cara.cmd") doctor
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""

@@ -106,7 +106,7 @@ That downloads Cara into:
 %LOCALAPPDATA%\Cara
 ```
 
-and adds the `cara` command to the user PATH.
+and adds the `cara` command to the user PATH for PowerShell, Command Prompt, and normal terminals.
 
 From a local clone of this repo, install the same command with PowerShell:
 
@@ -126,7 +126,7 @@ On macOS/Linux:
 bash install.sh
 ```
 
-The installer checks for Node 22.19.0 or newer because the CLI runs on Node and Pi requires current Node APIs. If Node or Cara dependencies are missing, it asks before installing them. It then makes the `cara` command available and runs `cara doctor`. For package-manager actions, prefer Bun; the installer falls back to npm when Bun is not available.
+The installer checks for Node 22.19.0 or newer because the CLI runs on Node and Pi requires current Node APIs. If Node or Cara dependencies are missing, it asks before installing them. It then creates a `cara` command shim, adds it to PATH, and runs `cara doctor`. For package-manager actions, prefer Bun; the installer falls back to npm when Bun is not available.
 
 For unattended installs, pass `-Yes`:
 
@@ -207,6 +207,7 @@ The useful ones are:
 
 - `@file` to attach a project file to the prompt
 - `/start` to scan the current repo and give a plain starting point
+- `/new` to start a fresh chat with no previous messages, like Pi
 - `/status` to see project/session/model info
 - `/profile` to see or switch whether this is Elson/build mode or Cara/use mode
 - `/auth` or `/account` to show logged-in email, plan, token status, and Codex limits
