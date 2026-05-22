@@ -9,6 +9,8 @@ const bold = "\x1b[1m";
 const reset = "\x1b[0m";
 const fallbackTheme = buildTerminalTheme();
 const assistantPadding = "  ";
+const liveRenderDebounceMs = 32;
+const startupSpinnerMs = 80;
 const outroMessages = loadJson("./outro-messages.json", {
   sessionComplete: ["another great coding session complete... or not, who knows"],
   fromElson: ["I am always rooting for her."],
@@ -50,7 +52,7 @@ export function createCaraUi(options = {}) {
     renderTimer = setTimeout(() => {
       renderTimer = undefined;
       renderInput();
-    }, 90);
+    }, liveRenderDebounceMs);
   }
 
   function flushInputRender() {
@@ -322,7 +324,7 @@ ${bold}Slash commands${reset}
       };
       line("");
       render();
-      const timer = setInterval(render, 120);
+      const timer = setInterval(render, startupSpinnerMs);
       return () => {
         if (stopped) return;
         stopped = true;

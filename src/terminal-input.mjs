@@ -16,6 +16,7 @@ const syncEnd = "\x1b[?2026l";
 const fakeCursor = "\x1b[7m \x1b[27m";
 const inputPlaceholders = loadJson("./input-placeholders.json", { placeholders: ["message..."] }).placeholders ?? ["message..."];
 const pastedTextThreshold = 80;
+const busyAnimationMs = 120;
 
 export async function runTerminalInputLoop(onInput, options = {}, controls) {
   if (!input.isTTY || !output.isTTY) {
@@ -308,7 +309,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
       busyFrame += 1;
       render();
     }
-  }, 420);
+  }, busyAnimationMs);
 
   const onKeypress = async (str, key) => {
     const isPlainTextInput = str && !key?.ctrl && !key?.meta && !key?.alt && (str >= " " || /\r|\n/.test(str));
