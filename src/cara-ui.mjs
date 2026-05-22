@@ -18,10 +18,7 @@ const outroMessages = loadJson("./outro-messages.json", {
 
 export function createCaraUi(options = {}) {
   const theme = buildTerminalTheme(options.terminalTheme ?? options.theme);
-  let lastAssistantText = "";
-  let streamingAssistantContent = emptyAssistantContent();
-  let directAssistantText = "";
-  let assistantOpen = false;
+  const assistantLifecycle = new AssistantMessageLifecycle();
   const activeTools = new Map();
   let isBusy = false;
   let inputActive = false;
@@ -101,41 +98,17 @@ export function createCaraUi(options = {}) {
     requestInputRender();
   }
 
-  function beginAssistant() {
-    if (assistantOpen) return;
+  function beginAssistant(message) {
     suppressWorking = false;
     activityLabel = "thinking";
-    assistantOpen = true;
-    streamingAssistantContent = emptyAssistantContent();
-    directAssistantText = "";
-  }
-
-  function streamAssistant(content) {
-    const next = normalizeAssistantContent(extractAssistantContent(content), streamingAssistantContent);
-    if (!hasAssistantContent(next)) return;
-    beginAssistant();
-    activityLabel = "writing";
-    streamingAssistantContent = next;
+    assistantLifecycle.start(message);
     requestInputRender();
   }
 
   function streamAssistantEvent(event) {
-    const delta = event.assistantMessageEvent;
-    if (delta?.type === "text_delta" && typeof delta.delta === "string" && delta.delta.length > 0) {
-      appendAssistantText(delta.delta);
-      return;
-    }
-
-    const next = extractAssistantEventContent(event, streamingAssistantContent);
-    if (!hasAssistantContent(next)) return;
-
-    const appended = appendAssistantTextDeltaFromFullText(next.text);
-    if (appended) return;
-
-    if (directAssistantText) return;
-    beginAssistant();
+    assistantLifecycle.update(event);
+    if (!assistantLifecycle.hasTransient()) return;
     activityLabel = activityFromAssistantEvent(event);
-    streamingAssistantContent = next;
     if (progressBox) {
       updateProgressBox({
         done: false,
@@ -148,70 +121,17 @@ export function createCaraUi(options = {}) {
     }
   }
 
-  function appendAssistantTextDeltaFromFullText(nextText) {
-    const delta = getAssistantSnapshotDelta(directAssistantText, nextText);
-    if (!delta) return false;
-    appendAssistantText(delta, { alreadyMergedText: nextText });
-    return true;
-  }
-
-  function appendAssistantText(deltaText, options = {}) {
-    if (!deltaText) return;
-    beginAssistant();
-    activityLabel = "writing";
-    const previousText = directAssistantText;
-    const nextText = options.alreadyMergedText ?? mergeAssistantTextDelta(previousText, deltaText);
-    const textToWrite = nextText.startsWith(previousText) ? nextText.slice(previousText.length) : deltaText;
-    if (!textToWrite) return;
-    directAssistantText = nextText;
-    streamingAssistantContent = { ...streamingAssistantContent, text: directAssistantText };
-    if (progressBox) {
-      updateProgressBox({
-        done: false,
-        label: "writing",
-        detail: "turning the scan into the start note",
-        percent: Math.max(progressBox.percent, 88),
-      });
-    }
-    print(formatAssistantStreamChunk(textToWrite, previousText));
-  }
-
-  function finishAssistant(content) {
+  function finishAssistant(message) {
     cancelInputRender();
-    const finalContent = normalizeAssistantContent(extractAssistantContent(content), streamingAssistantContent);
-    const finalKey = assistantContentKey(finalContent);
-    const streamedText = directAssistantText;
-    const directKey = streamedText.trim();
     activityLabel = "writing";
     suppressWorking = true;
-
-    if (directKey) {
-      if (finalContent.text && finalContent.text.startsWith(streamedText)) {
-        const missingText = finalContent.text.slice(streamedText.length);
-        if (missingText) {
-          print(formatAssistantStreamChunk(missingText, streamedText));
-          directAssistantText = finalContent.text;
-        }
-      }
-      if (!directAssistantText.endsWith("\n")) write("\n");
-      lastAssistantText = finalKey || directKey;
-      streamingAssistantContent = emptyAssistantContent();
-      assistantOpen = false;
-      directAssistantText = "";
-      renderInput();
-      return;
-    }
-
-    streamingAssistantContent = emptyAssistantContent();
-    assistantOpen = false;
-    directAssistantText = "";
-    if (!finalKey || finalKey === lastAssistantText) {
+    const finalContent = assistantLifecycle.end(message);
+    if (!finalContent) {
       renderInput();
       return;
     }
     if (progressBox) progressBox.done = true;
     print(`${formatAssistantContent(finalContent, theme).join("\n")}\n`);
-    lastAssistantText = finalKey;
   }
 
   function tool(event, state) {
@@ -400,7 +320,7 @@ ${bold}Slash commands${reset}
         flushInputRender();
       }
       if (event.type === "message_start" && event.message?.role === "assistant") {
-        beginAssistant();
+        beginAssistant(event.message);
       }
       if (event.type === "message_update" && event.message?.role === "assistant") {
         streamAssistantEvent(event);
@@ -410,7 +330,7 @@ ${bold}Slash commands${reset}
       if (event.type === "tool_execution_update") tool(event, "running");
       if (event.type === "tool_execution_end") tool(event, event.isError ? "error" : "done");
       if (event.type === "message_end" && event.message?.role === "assistant") {
-        finishAssistant(event.message.content);
+        finishAssistant(event.message);
       }
       if (event.type === "auto_retry_start") {
         activityLabel = "retrying";
@@ -454,11 +374,7 @@ ${bold}Slash commands${reset}
           return Boolean(
             (progressBox && !progressBox.done) ||
             activeTools.size > 0 ||
-            shouldRenderAssistantTransient({
-              assistantOpen,
-              content: streamingAssistantContent,
-              directAssistantText,
-            })
+            assistantLifecycle.hasTransient()
           );
         },
         getTransientLines() {
@@ -470,8 +386,8 @@ ${bold}Slash commands${reset}
             lines.push(...renderToolBlock(toolState, theme));
           }
           if (lines.length > 0) return lines;
-          if (shouldRenderAssistantTransient({ assistantOpen, content: streamingAssistantContent, directAssistantText })) {
-            return formatAssistantContent(streamingAssistantContent, theme);
+          if (assistantLifecycle.hasTransient()) {
+            return formatAssistantContent(assistantLifecycle.getTransient(), theme);
           }
           return lines;
         },
@@ -597,23 +513,6 @@ function formatAssistantContent(content, theme = fallbackTheme) {
     lines.push(...renderedText.map((line) => assistantLine(line, theme)));
   }
   return lines;
-}
-
-function formatAssistantStreamChunk(deltaText, previousText = "") {
-  const delta = String(deltaText ?? "");
-  if (!delta) return "";
-  let rendered = previousText ? "" : "\n";
-  if (!previousText || previousText.endsWith("\n")) rendered += assistantPadding;
-
-  for (let i = 0; i < delta.length; i += 1) {
-    const char = delta[i];
-    rendered += char;
-    if (char === "\n" && i < delta.length - 1) {
-      rendered += assistantPadding;
-    }
-  }
-
-  return rendered;
 }
 
 function progressPatchFromTool(progress, toolState, state) {
@@ -798,23 +697,51 @@ function extractAssistantEventContent(event, current = emptyAssistantContent()) 
   return next;
 }
 
+export class AssistantMessageLifecycle {
+  constructor() {
+    this.open = false;
+    this.content = emptyAssistantContent();
+    this.lastCommittedKey = "";
+  }
+
+  start(message = {}) {
+    this.open = true;
+    this.content = extractAssistantContent(message.content);
+    return this.content;
+  }
+
+  update(event = {}) {
+    if (!this.open) this.start(event.message ?? {});
+    const next = extractAssistantEventContent(event, this.content);
+    if (hasAssistantContent(next)) this.content = next;
+    return this.content;
+  }
+
+  end(message = {}) {
+    const finalContent = normalizeAssistantContent(extractAssistantContent(message.content), this.content);
+    const finalKey = assistantContentKey(finalContent);
+    this.open = false;
+    this.content = emptyAssistantContent();
+    if (!finalKey || finalKey === this.lastCommittedKey) return null;
+    this.lastCommittedKey = finalKey;
+    return finalContent;
+  }
+
+  hasTransient() {
+    return Boolean(this.open && hasAssistantContent(this.content));
+  }
+
+  getTransient() {
+    return this.content;
+  }
+}
+
 export function mergeAssistantTextDelta(currentText, deltaText) {
   if (!currentText) return deltaText;
   if (!deltaText) return currentText;
   if (deltaText === currentText || currentText.endsWith(deltaText)) return currentText;
   if (deltaText.startsWith(currentText)) return deltaText;
   return `${currentText}${deltaText}`;
-}
-
-export function getAssistantSnapshotDelta(currentText, nextText) {
-  const current = String(currentText ?? "");
-  const next = String(nextText ?? "");
-  if (!next || !next.startsWith(current)) return "";
-  return next.slice(current.length);
-}
-
-export function shouldRenderAssistantTransient({ assistantOpen = false, content = emptyAssistantContent(), directAssistantText = "" } = {}) {
-  return Boolean(assistantOpen && hasAssistantContent(content) && !String(directAssistantText ?? "").trim());
 }
 
 function longerAssistantContent(...contents) {

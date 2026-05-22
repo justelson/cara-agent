@@ -245,23 +245,10 @@ async function main() {
       if (runtime.modelFallbackMessage) {
         console.error(runtime.modelFallbackMessage);
       }
-      let streamedText = "";
-      const unsubscribe = runtime.session.subscribe((event) => {
-        const delta = event.type === "message_update" ? event.assistantMessageEvent : undefined;
-        if (event.message?.role === "assistant" && delta?.type === "text_delta" && typeof delta.delta === "string") {
-          streamedText += delta.delta;
-          process.stdout.write(delta.delta);
-        }
-      });
       try {
         const text = await runCaraPrintPrompt(runtime, parsed.prompt);
-        if (streamedText) {
-          if (!streamedText.endsWith("\n")) process.stdout.write("\n");
-        } else if (text) {
-          process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
-        }
+        if (text) process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
       } finally {
-        unsubscribe?.();
         runtime.session.dispose();
       }
       return;
