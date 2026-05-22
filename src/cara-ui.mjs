@@ -149,8 +149,7 @@ export function createCaraUi(options = {}) {
   }
 
   function appendAssistantTextDeltaFromFullText(nextText) {
-    if (!nextText || !nextText.startsWith(directAssistantText)) return false;
-    const delta = nextText.slice(directAssistantText.length);
+    const delta = getAssistantSnapshotDelta(directAssistantText, nextText);
     if (!delta) return false;
     appendAssistantText(delta, { alreadyMergedText: nextText });
     return true;
@@ -455,7 +454,11 @@ ${bold}Slash commands${reset}
           return Boolean(
             (progressBox && !progressBox.done) ||
             activeTools.size > 0 ||
-            (assistantOpen && hasAssistantContent(streamingAssistantContent))
+            shouldRenderAssistantTransient({
+              assistantOpen,
+              content: streamingAssistantContent,
+              directAssistantText,
+            })
           );
         },
         getTransientLines() {
@@ -467,7 +470,7 @@ ${bold}Slash commands${reset}
             lines.push(...renderToolBlock(toolState, theme));
           }
           if (lines.length > 0) return lines;
-          if (assistantOpen && hasAssistantContent(streamingAssistantContent)) {
+          if (shouldRenderAssistantTransient({ assistantOpen, content: streamingAssistantContent, directAssistantText })) {
             return formatAssistantContent(streamingAssistantContent, theme);
           }
           return lines;
@@ -795,12 +798,23 @@ function extractAssistantEventContent(event, current = emptyAssistantContent()) 
   return next;
 }
 
-function mergeAssistantTextDelta(currentText, deltaText) {
+export function mergeAssistantTextDelta(currentText, deltaText) {
   if (!currentText) return deltaText;
   if (!deltaText) return currentText;
   if (deltaText === currentText || currentText.endsWith(deltaText)) return currentText;
   if (deltaText.startsWith(currentText)) return deltaText;
   return `${currentText}${deltaText}`;
+}
+
+export function getAssistantSnapshotDelta(currentText, nextText) {
+  const current = String(currentText ?? "");
+  const next = String(nextText ?? "");
+  if (!next || !next.startsWith(current)) return "";
+  return next.slice(current.length);
+}
+
+export function shouldRenderAssistantTransient({ assistantOpen = false, content = emptyAssistantContent(), directAssistantText = "" } = {}) {
+  return Boolean(assistantOpen && hasAssistantContent(content) && !String(directAssistantText ?? "").trim());
 }
 
 function longerAssistantContent(...contents) {

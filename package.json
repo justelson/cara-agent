@@ -1,6 +1,6 @@
 {
   "name": "cara",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Local Cara coding assistant CLI.",
   "type": "module",
@@ -9,7 +9,7 @@
     "inspect": "node bin/cara.mjs inspect",
     "ask": "node bin/cara.mjs ask",
     "doctor": "node bin/cara.mjs doctor",
-    "check": "node bin/cara.mjs doctor",
+    "check": "node --check src/cara-ui.mjs && node --check src/terminal-input.mjs && node --check src/cara.mjs && node scripts/test-cara-ui-render.mjs && node bin/cara.mjs doctor",
     "release:zip": "node scripts/build-release.mjs",
     "install:global": "bun link",
     "ui:dev": "bun run --cwd apps/cara-ui dev",
