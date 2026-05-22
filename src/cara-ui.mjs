@@ -119,17 +119,18 @@ export function createCaraUi(options = {}) {
 
   function streamAssistantEvent(event) {
     const delta = event.assistantMessageEvent;
-    if (!inputActive && delta?.type === "text_delta" && typeof delta.delta === "string" && delta.delta.length > 0) {
-      beginAssistant();
-      activityLabel = "writing";
-      directAssistantText = mergeAssistantTextDelta(directAssistantText, delta.delta);
-      streamingAssistantContent = { ...streamingAssistantContent, text: directAssistantText };
-      write(delta.delta);
+    if (delta?.type === "text_delta" && typeof delta.delta === "string" && delta.delta.length > 0) {
+      appendAssistantText(delta.delta);
       return;
     }
 
     const next = extractAssistantEventContent(event, streamingAssistantContent);
     if (!hasAssistantContent(next)) return;
+
+    const appended = appendAssistantTextDeltaFromFullText(next.text);
+    if (appended) return;
+
+    if (directAssistantText) return;
     beginAssistant();
     activityLabel = activityFromAssistantEvent(event);
     streamingAssistantContent = next;
@@ -145,24 +146,63 @@ export function createCaraUi(options = {}) {
     }
   }
 
+  function appendAssistantTextDeltaFromFullText(nextText) {
+    if (!nextText || !nextText.startsWith(directAssistantText)) return false;
+    const delta = nextText.slice(directAssistantText.length);
+    if (!delta) return false;
+    appendAssistantText(delta, { alreadyMergedText: nextText });
+    return true;
+  }
+
+  function appendAssistantText(deltaText, options = {}) {
+    if (!deltaText) return;
+    beginAssistant();
+    activityLabel = "writing";
+    const previousText = directAssistantText;
+    const nextText = options.alreadyMergedText ?? mergeAssistantTextDelta(previousText, deltaText);
+    const textToWrite = nextText.startsWith(previousText) ? nextText.slice(previousText.length) : deltaText;
+    if (!textToWrite) return;
+    directAssistantText = nextText;
+    streamingAssistantContent = { ...streamingAssistantContent, text: directAssistantText };
+    if (progressBox) {
+      updateProgressBox({
+        done: false,
+        label: "writing",
+        detail: "turning the scan into the start note",
+        percent: Math.max(progressBox.percent, 88),
+      });
+    }
+    print(formatAssistantStreamChunk(textToWrite, previousText));
+  }
+
   function finishAssistant(content) {
     cancelInputRender();
     const finalContent = normalizeAssistantContent(extractAssistantContent(content), streamingAssistantContent);
     const finalKey = assistantContentKey(finalContent);
-    const directKey = directAssistantText.trim();
-    streamingAssistantContent = emptyAssistantContent();
-    assistantOpen = false;
+    const streamedText = directAssistantText;
+    const directKey = streamedText.trim();
     activityLabel = "writing";
     suppressWorking = true;
 
     if (directKey) {
+      if (finalContent.text && finalContent.text.startsWith(streamedText)) {
+        const missingText = finalContent.text.slice(streamedText.length);
+        if (missingText) {
+          print(formatAssistantStreamChunk(missingText, streamedText));
+          directAssistantText = finalContent.text;
+        }
+      }
       if (!directAssistantText.endsWith("\n")) write("\n");
       lastAssistantText = finalKey || directKey;
+      streamingAssistantContent = emptyAssistantContent();
+      assistantOpen = false;
       directAssistantText = "";
       renderInput();
       return;
     }
 
+    streamingAssistantContent = emptyAssistantContent();
+    assistantOpen = false;
     directAssistantText = "";
     if (!finalKey || finalKey === lastAssistantText) {
       renderInput();
@@ -552,6 +592,23 @@ function formatAssistantContent(content, theme = fallbackTheme) {
     lines.push(...renderedText.map((line) => assistantLine(line, theme)));
   }
   return lines;
+}
+
+function formatAssistantStreamChunk(deltaText, previousText = "") {
+  const delta = String(deltaText ?? "");
+  if (!delta) return "";
+  let rendered = previousText ? "" : "\n";
+  if (!previousText || previousText.endsWith("\n")) rendered += assistantPadding;
+
+  for (let i = 0; i < delta.length; i += 1) {
+    const char = delta[i];
+    rendered += char;
+    if (char === "\n" && i < delta.length - 1) {
+      rendered += assistantPadding;
+    }
+  }
+
+  return rendered;
 }
 
 function progressPatchFromTool(progress, toolState, state) {
