@@ -35,6 +35,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
   let pastedImages = [];
   let pendingInsertedText = "";
   let pendingInsertTimer = undefined;
+  let resizeRenderTimer = undefined;
   let selectedIndex = 0;
   let renderedLines = 0;
   let renderedPromptIndex = 0;
@@ -165,6 +166,16 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     renderedEditorLines = editorLines.length;
     renderedPromptIndex = Math.max(0, renderedLines - 1);
     endBatch();
+  };
+
+  const scheduleResizeRender = () => {
+    if (cleanedUp) return;
+    if (resizeRenderTimer) clearTimeout(resizeRenderTimer);
+    resizeRenderTimer = setTimeout(() => {
+      resizeRenderTimer = undefined;
+      lastRenderedOutput = "";
+      render();
+    }, 24);
   };
 
   const notifySelectedSuggestion = (item) => {
@@ -437,6 +448,9 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     cleanedUp = true;
     input.off("keypress", onKeypress);
     if (pendingInsertTimer) clearTimeout(pendingInsertTimer);
+    if (resizeRenderTimer) clearTimeout(resizeRenderTimer);
+    output.off?.("resize", scheduleResizeRender);
+    process.off?.("SIGWINCH", scheduleResizeRender);
     clearInterval(animation);
     input.setRawMode(false);
     input.pause();
@@ -446,6 +460,8 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     finish();
   };
 
+  output.on?.("resize", scheduleResizeRender);
+  process.on?.("SIGWINCH", scheduleResizeRender);
   input.on("keypress", onKeypress);
   await done;
 
