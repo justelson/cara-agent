@@ -89,7 +89,10 @@ export class EditorComponent {
     const displayText = displayTextFor(this.buffer, this.pastedBlocks);
     const editorLines = renderEditorLines({ prompt, text: displayText, placeholder: this.placeholderText }, width, this.theme)
       .map((line) => styleAttachmentLabels(line, this.theme, fgReset));
+    const rail = renderInputRail(width, this.theme);
+    lines.push(rail);
     lines.push(...editorLines);
+    lines.push(rail);
 
     const suggestions = this.suggestionsFor(this.buffer);
     if (this.selectedIndex >= suggestions.length) this.selectedIndex = 0;
@@ -456,6 +459,10 @@ function renderEditorLines({ prompt, text = "", placeholder = "message..." }, wi
   if (!text) return [`${prompt}${fakeCursor}${theme.muted}${placeholder}${reset}`];
   const rows = wrapEditorInput(text, rowWidth);
   return rows.map((row, index) => `${index === 0 ? prompt : " ".repeat(promptWidth)}${row}`);
+}
+
+function renderInputRail(width, theme = fallbackTheme) {
+  return `${theme.editorBorder}${"─".repeat(Math.max(1, width))}${reset}`;
 }
 
 function wrapEditorInput(text, width) {

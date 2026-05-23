@@ -405,6 +405,7 @@ function runInteractiveHostUsesNormalScreenRegression() {
 
 function runPreInteractivePanelsSurviveInteractiveRegression() {
   let plain = "";
+  let raw = "";
   captureStdout(() => {
     const ui = createCaraUi();
     ui.banner({
@@ -416,11 +417,14 @@ function runPreInteractivePanelsSurviveInteractiveRegression() {
       projectMemory: ["AGENTS.md"],
     });
     ui._debugBeginInteractiveForTests();
-    plain = ui._debugRenderLinesForTests(90).map(stripAnsi).join("\n");
+    const rendered = ui._debugRenderLinesForTests(90);
+    raw = rendered.join("\n");
+    plain = rendered.map(stripAnsi).join("\n");
   });
 
   assert.match(plain, /┏━━━┳┓/);
   assert.match(plain, /gpt-5\.5 · elson/);
+  assert.match(raw, /\x1b\[38;5;75m\[Context\]/);
   assert.match(plain, /\[Context\]/);
   assert.match(plain, /AGENTS\.md/);
   assert.match(plain, /\[Runtime\]/);
@@ -461,6 +465,8 @@ function runEditorStatusGapRegression() {
     theme: {},
   });
   const lines = editor.render(80).map(stripAnsi);
+  assert.equal(lines[0], "─".repeat(80), "editor should draw an input rail above the prompt");
+  assert.equal(lines[2], "─".repeat(80), "editor should draw an input rail below the prompt");
   assert.equal(lines.at(-2), "", "editor should leave one empty line between input and status line");
   assert.equal(lines.at(-1), "STATUS");
 }
