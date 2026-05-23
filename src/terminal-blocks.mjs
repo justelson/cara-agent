@@ -35,7 +35,7 @@ export function renderStatusBox(status = {}, theme = fallbackTheme, terminalColu
   const contentWidth = Math.max(24, width - 4);
   const valueWidth = Math.max(16, contentWidth - 32);
   const rows = [
-    `${bold}${theme.primary}>_ Zyra status${reset} ${theme.muted}${status.sessionName ? status.sessionName : "live session"}${reset}`,
+    `${bold}${theme.primary}>_ Zyra session${reset} ${theme.muted}${status.sessionName ? status.sessionName : "live session"}${reset}`,
     "",
     alignedField("Model", status.model, theme, valueWidth),
     alignedField("Directory", formatHomePath(status.project), theme, valueWidth),
@@ -71,8 +71,8 @@ export function renderCommandsBox(theme = fallbackTheme, terminalColumns = 100) 
     "",
     commandRow("/commands", "show this list", theme, commandWidth),
     commandRow("/start", "scan/orient to the project", theme, commandWidth),
-    commandRow("/status", "show model, directory, session, context, and usage", theme, commandWidth),
-    commandRow("/session", "show current chat file, messages, tokens, and cost", theme, commandWidth),
+    commandRow("/session", "show model, directory, context, and usage", theme, commandWidth),
+    commandRow("/chat", "show current chat file, messages, tokens, and cost", theme, commandWidth),
     commandRow("/memory", "summarize what Zyra knows about Cara", theme, commandWidth),
     commandRow("/consolidate", "clean and update Zyra memory layers", theme, commandWidth),
     "",

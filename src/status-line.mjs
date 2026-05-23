@@ -143,7 +143,8 @@ function readGitBranch(cwd) {
 
 function contextColor(theme, session) {
   const percent = session.getContextUsage?.()?.percent;
-  if (typeof percent !== "number") return theme.muted;
+  if (percent === null) return theme.warning || theme.muted;
+  if (typeof percent !== "number") return theme.success || theme.muted;
   if (percent >= 85) return theme.error;
   if (percent >= 65) return theme.warning;
   return theme.success;

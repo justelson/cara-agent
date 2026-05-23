@@ -174,7 +174,7 @@ function printDoctor(ui) {
 }
 
 async function printSessions(_ui, _project) {
-  console.log("Use `zyra resume` to browse chats, or `/session` inside Zyra for the current chat.");
+  console.log("Use `zyra resume` to browse chats, or `/chat` inside Zyra for the current chat.");
 }
 
 async function main() {
@@ -267,10 +267,10 @@ async function main() {
   }
 
   const stopStarting = ui.starting("Starting agent");
-  const runtime = await createZyraSession(runtimeOptions).finally(stopStarting);
+  let runtime = await createZyraSession(runtimeOptions).finally(stopStarting);
   ui.setTheme(runtime.terminalTheme);
   ui.banner(describeRuntime(runtime));
-  runtime.session.subscribe((event) => ui.event(event));
+  let unsubscribe = runtime.session.subscribe((event) => ui.event(event));
   if (runtime.modelFallbackMessage) {
     ui.info(runtime.modelFallbackMessage);
   }
@@ -282,11 +282,29 @@ async function main() {
   let abortRequested = false;
   let suppressNextAbortError = false;
 
+  const startFreshChat = async () => {
+    ui.info("Starting a fresh Zyra chat...");
+    const nextRuntime = await createZyraSession({
+      ...runtimeOptions,
+      sessionMode: "new",
+      session: "",
+    });
+    unsubscribe?.();
+    runtime.session.dispose();
+    runtime = nextRuntime;
+    ui.setTheme(runtime.terminalTheme);
+    ui.resetSession(describeRuntime(runtime));
+    unsubscribe = runtime.session.subscribe((event) => ui.event(event));
+    if (runtime.modelFallbackMessage) {
+      ui.info(runtime.modelFallbackMessage);
+    }
+  };
+
   const runPromptTurn = async (submission) => {
     const text = getSubmissionText(submission);
-    const slashResult = await handleSlash(runtime, ui, text);
+    const slashResult = await handleSlash(runtime, ui, text, { startFreshChat });
     if (slashResult) {
-      restartMode = slashResult === "restart" || slashResult === "new" ? slashResult : "";
+      restartMode = slashResult === "restart" ? slashResult : "";
       exitRequested = Boolean(restartMode) || isExitInput(text);
       if (!exitRequested) {
         await drainPendingMidRunInputs();
@@ -362,10 +380,11 @@ async function main() {
     const exitSummary = ui.goodbye(describeRuntime(runtime));
     saveZyraExitSummary(runtime, exitSummary);
   }
+  unsubscribe?.();
   runtime.session.dispose();
 }
 
-async function handleSlash(runtime, ui, input) {
+async function handleSlash(runtime, ui, input, controls = {}) {
   const text = input.trim();
   if (!text.startsWith("/") && !["exit", "quit"].includes(text)) return false;
 
@@ -387,7 +406,7 @@ async function handleSlash(runtime, ui, input) {
     }
     return true;
   }
-  if (command === "/status") {
+  if (command === "/session") {
     ui.status(describeRuntime(runtime));
     return true;
   }
@@ -444,14 +463,14 @@ async function handleSlash(runtime, ui, input) {
     return "restart";
   }
   if (command === "/new") {
-    ui.info("Starting a fresh Zyra chat...");
-    return "new";
+    await controls.startFreshChat?.();
+    return true;
   }
   if (command === "/consolidate") {
     await runZyraPrompt(runtime, buildZyraConsolidationPrompt(runtime));
     return true;
   }
-  if (command === "/session" || command === "/chat") {
+  if (command === "/chat") {
     ui.sessionInfo(buildSessionInfo(runtime));
     return true;
   }

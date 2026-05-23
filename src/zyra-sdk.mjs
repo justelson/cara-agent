@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
@@ -40,6 +40,7 @@ const LEGACY_MARKERS = {
 };
 const PROJECT_DATA_DIR = ".zyra";
 const LEGACY_PROJECT_DATA_DIR = ".cara";
+const PROJECT_PREFERENCES_FILE = "preferences.json";
 const commandCache = new Map();
 
 export const defaults = {
@@ -769,11 +770,12 @@ function readSessionTheme(sessionManager) {
 function ensureSessionTerminalTheme(sessionManager, options = {}) {
   const requested = String(options.requested ?? "").trim();
   const stored = readSessionTerminalTheme(sessionManager);
-  const theme = resolveTerminalTheme(requested || stored || DEFAULT_TERMINAL_THEME, { root: ROOT, project: options.project });
+  const projectPreference = readProjectTerminalThemePreference(options.project);
+  const theme = resolveTerminalTheme(requested || stored || projectPreference || DEFAULT_TERMINAL_THEME, { root: ROOT, project: options.project });
   if (options.persist && typeof sessionManager.appendCustomEntry === "function" && theme.name !== stored) {
     sessionManager.appendCustomEntry(ZYRA_TERMINAL_THEME_CUSTOM_TYPE, {
       name: theme.name,
-      source: requested ? "manual" : stored ? "session" : "default",
+      source: requested ? "manual" : stored ? "session" : projectPreference ? "project" : "default",
       savedAt: new Date().toISOString(),
     });
   }
@@ -968,6 +970,7 @@ export function listZyraThemes(runtime) {
 export function setZyraTheme(runtime, selector) {
   const theme = resolveTerminalTheme(selector, { root: defaults.root, project: runtime.project });
   runtime.terminalTheme = theme;
+  writeProjectTerminalThemePreference(runtime.project, theme.name);
   const sessionManager = runtime.session.sessionManager;
   if (typeof sessionManager.appendCustomEntry === "function" && sessionManager.getSessionFile?.()) {
     sessionManager.appendCustomEntry(ZYRA_TERMINAL_THEME_CUSTOM_TYPE, {
@@ -977,6 +980,43 @@ export function setZyraTheme(runtime, selector) {
     });
   }
   return theme;
+}
+
+function readProjectTerminalThemePreference(project) {
+  const preferences = readProjectPreferences(project);
+  return String(preferences.terminalTheme ?? "").trim() || undefined;
+}
+
+function writeProjectTerminalThemePreference(project, themeName) {
+  if (!project || !themeName) return;
+  const preferences = readProjectPreferences(project);
+  writeProjectPreferences(project, {
+    ...preferences,
+    terminalTheme: themeName,
+    terminalThemeUpdatedAt: new Date().toISOString(),
+  });
+}
+
+function readProjectPreferences(project) {
+  const file = projectPreferencesFile(project);
+  if (!file || !existsSync(file)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(file, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeProjectPreferences(project, preferences) {
+  const file = projectPreferencesFile(project);
+  if (!file) return;
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify(preferences, null, 2)}\n`, "utf8");
+}
+
+function projectPreferencesFile(project) {
+  return project ? path.join(project, PROJECT_DATA_DIR, PROJECT_PREFERENCES_FILE) : "";
 }
 
 export function buildZyraConsolidationPrompt(runtime) {

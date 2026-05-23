@@ -52,6 +52,20 @@ export function createZyraUi(options = {}) {
   const committedAssistantIds = new Set();
   const committedAssistantKeys = new Set();
 
+  const resetInteractiveState = () => {
+    assistantLifecycle.reset();
+    activeTools.clear();
+    activeAssistantComponent = null;
+    activeAssistantKey = "";
+    activeProgress = null;
+    pendingAssistantCommit = null;
+    isBusy = false;
+    suppressWorking = false;
+    activityLabel = "";
+    committedAssistantIds.clear();
+    committedAssistantKeys.clear();
+  };
+
   const writeLines = (lines = []) => {
     const text = (Array.isArray(lines) ? lines : String(lines ?? "").split(/\r?\n/)).join("\n");
     if (text) output.write(text.endsWith("\n") ? text : `${text}\n`);
@@ -237,6 +251,12 @@ export function createZyraUi(options = {}) {
   return {
     banner(status = {}) {
       appendPanel(new StartupBannerComponent(status, { ...options, theme }));
+    },
+    resetSession(status = {}) {
+      resetInteractiveState();
+      host.inputComponent?.resetSession?.();
+      const banner = new StartupBannerComponent(status, { ...options, theme });
+      host.replaceComponents([banner], { clear: true });
     },
     commands() {
       appendPanel(commandsPanel(theme, host.width()));
@@ -455,7 +475,7 @@ function centerNearBlock(text, width, blockLeft, blockWidth) {
 function renderStartupSection(label, values, theme, width) {
   const bodyWidth = Math.max(1, width - 2);
   const body = (Array.isArray(values) ? values : [values]).map((value) => String(value ?? "").trim()).filter(Boolean);
-  const sectionColor = theme.info || theme.accent || theme.primary || "";
+  const sectionColor = theme.accent || theme.info || theme.primary || "";
   const lines = [`${sectionColor}[${label}]${reset}`];
   for (const value of body.length ? body : ["none"]) {
     lines.push(`  ${theme.muted}${truncate(value, bodyWidth)}${reset}`);
@@ -652,6 +672,12 @@ export class AssistantMessageLifecycle {
 
   getTransient() {
     return this.content;
+  }
+
+  reset() {
+    this.open = false;
+    this.content = emptyAssistantContent();
+    this.lastCommittedKey = "";
   }
 }
 

@@ -60,6 +60,29 @@ export class EditorComponent {
     this.host?.invalidate();
   }
 
+  resetSession() {
+    if (this.pendingInsertTimer) {
+      clearTimeout(this.pendingInsertTimer);
+      this.pendingInsertTimer = undefined;
+    }
+    this.buffer = "";
+    this.pastedBlocks = [];
+    this.pastedImages = [];
+    this.pendingInsertedText = "";
+    this.selectedIndex = 0;
+    this.completedText = "";
+    this.suppressSuggestionsFor = "";
+    this.inputHistoryIndex = null;
+    this.inputHistoryDraft = "";
+    this.hasTranscript = false;
+    this.waiting = false;
+    this.busyFrame = 0;
+    this.starterRecommendationDismissed = false;
+    this.insertedStarterPrompt = "";
+    this.imagePastePromises.clear();
+    this.host?.invalidate({ force: true });
+  }
+
   tickBusy() {
     this.busyFrame += 1;
     this.host?.invalidate();

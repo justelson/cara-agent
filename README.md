@@ -146,7 +146,7 @@ Inside chat:
 - `@file` attaches project files to the prompt.
 - `/start` scans the current repo and gives a plain starting point.
 - `/new` starts a fresh chat.
-- `/status` shows project/session/model info.
+- `/session` shows project/session/model info.
 - `/profile` switches between `elson`, `cara`, and `auto`.
 - `/memory` summarizes what Zyra knows about Cara.
 - `/consolidate` cleans up local memory after meaningful sessions.

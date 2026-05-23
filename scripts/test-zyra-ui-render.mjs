@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { getSlashSuggestions } from "../src/slash-suggestions.mjs";
 import { AssistantMessageLifecycle, createZyraUi, mergeAssistantTextDelta } from "../src/zyra-ui.mjs";
+import { setZyraTheme } from "../src/zyra-sdk.mjs";
 import { renderStatusLine } from "../src/status-line.mjs";
 import { renderAccountStatusBox, renderCodexUsageBox, renderStatusBox } from "../src/terminal-blocks.mjs";
 import { ZyraComponentHost, EditorComponent, StaticLinesComponent } from "../src/tui/zyra-tui.mjs";
@@ -306,7 +311,7 @@ function runStaticPanelsThroughHostRegression() {
   });
   ui.commands();
   const plain = ui._debugRenderLinesForTests(90).map(stripAnsi).join("\n");
-  assert.match(plain, /Zyra status/);
+  assert.match(plain, /Zyra session/);
   assert.match(plain, /Slash commands/);
 }
 
@@ -425,7 +430,7 @@ function runPreInteractivePanelsSurviveInteractiveRegression() {
 
   assert.match(plain, /┏━━━┳┓/);
   assert.match(plain, /gpt-5\.5 · elson/);
-  assert.match(raw, /\x1b\[38;2;49;116;143m\[Context\]/);
+  assert.match(raw, /\x1b\[38;2;196;167;231m\[Context\]/);
   assert.match(plain, /\[Context\]/);
   assert.match(plain, /AGENTS\.md/);
   assert.match(plain, /\[Runtime\]/);
@@ -443,7 +448,8 @@ function runStartupSectionLabelsUseActiveThemeRegression() {
       terminalTheme: {
         name: "pill-test",
         colors: {
-          info: "#12ab34",
+          accent: "#12ab34",
+          info: "#abcdef",
         },
       },
     });
@@ -461,6 +467,35 @@ function runStartupSectionLabelsUseActiveThemeRegression() {
   assert.match(raw, /\x1b\[38;2;18;171;52m\[Context\]/);
   assert.match(raw, /\x1b\[38;2;18;171;52m\[Runtime\]/);
   assert.match(raw, /\x1b\[38;2;18;171;52m\[Theme\]/);
+}
+
+function runInteractiveSessionResetRedrawRegression() {
+  const writes = [];
+  const fakeOutput = {
+    columns: 80,
+    rows: 18,
+    write(chunk) {
+      writes.push(String(chunk));
+      return true;
+    },
+    on() {},
+    off() {},
+  };
+  const host = new ZyraComponentHost({ output: fakeOutput, autoRender: true });
+  host.setInteractive(true);
+  host.append(new StaticLinesComponent("old", ["old transcript"]));
+  host.setInputComponent(new StaticLinesComponent("input", ["> input"]));
+  host.invalidate({ force: true });
+
+  const beforeReset = writes.length;
+  host.replaceComponents([new StaticLinesComponent("new", ["new banner"])], { clear: true });
+  const resetWrite = writes.slice(beforeReset).join("");
+  const plain = host.renderLines(79).map(stripAnsi).join("\n");
+
+  assert.match(resetWrite, /\x1b\[2J\x1b\[H\x1b\[3J/, "session reset should clear the visible screen and scrollback");
+  assert.equal(plain.includes("old transcript"), false, "session reset should drop old transcript components");
+  assert.equal(plain.includes("new banner"), true, "session reset should render fresh session content");
+  assert.equal(plain.includes("> input"), true, "session reset should keep the input component alive");
 }
 
 function runTranscriptScrollKeepsInputPinnedRegression() {
@@ -515,6 +550,24 @@ function runEditorBusySpacingRegression() {
   assert.equal(lines[activityIndex + 1], "", "busy activity line should have breathing room below");
 }
 
+function runEditorSessionResetRegression() {
+  const editor = new EditorComponent({
+    suggestions: () => [],
+    theme: {},
+  });
+  editor.buffer = "/new";
+  editor.hasTranscript = true;
+  editor.waiting = true;
+  editor.starterRecommendationDismissed = true;
+
+  editor.resetSession();
+
+  assert.equal(editor.buffer, "");
+  assert.equal(editor.hasTranscript, false);
+  assert.equal(editor.waiting, false);
+  assert.equal(editor.starterRecommendationDismissed, false);
+}
+
 function runStatusLineColorRegression() {
   const runtime = {
     profile: "elson",
@@ -547,6 +600,10 @@ function runStatusLineColorRegression() {
   assert.match(line, /\x1b\[38;5;75melson/);
   assert.match(line, /\x1b\[33mContext 28% left/);
   assert.match(line, /\x1b\[38;5;82m\$0\.300/);
+
+  runtime.session.getContextUsage = () => undefined;
+  const freshLine = renderStatusLine(runtime, 120);
+  assert.match(freshLine, /\x1b\[32mContext 100% left/);
 }
 
 function runSystemPanelWidthRegression() {
@@ -572,6 +629,38 @@ function runSystemPanelWidthRegression() {
   }
 }
 
+function runThemePreferencePersistenceRegression() {
+  const project = mkdtempSync(path.join(os.tmpdir(), "zyra-theme-"));
+  try {
+    const entries = [];
+    const runtime = {
+      project,
+      session: {
+        sessionManager: {
+          getSessionFile: () => path.join(project, "session.jsonl"),
+          appendCustomEntry: (customType, data) => entries.push({ customType, data }),
+        },
+      },
+    };
+
+    setZyraTheme(runtime, "quiet");
+    const preferences = JSON.parse(readFileSync(path.join(project, ".zyra", "preferences.json"), "utf8"));
+
+    assert.equal(preferences.terminalTheme, "quiet");
+    assert.equal(runtime.terminalTheme.name, "quiet");
+    assert.equal(entries.at(-1)?.data?.name, "quiet");
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+}
+
+function runSessionCommandRenameRegression() {
+  const values = getSlashSuggestions({ project: process.cwd(), session: {} }, "/").map((item) => item.value);
+  assert.equal(values.includes("/session"), true);
+  assert.equal(values.includes("/chat"), true);
+  assert.equal(values.includes("/status"), false);
+}
+
 runDeltaStreamingRegression();
 runFullSnapshotRegression();
 runRepeatedSnapshotRegression();
@@ -591,9 +680,13 @@ runOverViewportRedrawRegression();
 runInteractiveHostUsesNormalScreenRegression();
 runPreInteractivePanelsSurviveInteractiveRegression();
 runStartupSectionLabelsUseActiveThemeRegression();
+runInteractiveSessionResetRedrawRegression();
 runTranscriptScrollKeepsInputPinnedRegression();
 runEditorStatusGapRegression();
 runEditorBusySpacingRegression();
+runEditorSessionResetRegression();
 runStatusLineColorRegression();
 runSystemPanelWidthRegression();
+runThemePreferencePersistenceRegression();
+runSessionCommandRenameRegression();
 console.log("zyra-ui render regression: ok");

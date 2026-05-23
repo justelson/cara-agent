@@ -97,9 +97,15 @@ export class ZyraComponentHost {
     if (this.components.length !== before) this.invalidate();
   }
 
-  clearComponents() {
+  clearComponents(options = {}) {
     this.components = [];
-    this.invalidate({ force: true });
+    this.invalidate({ force: true, clear: Boolean(options.clear) });
+  }
+
+  replaceComponents(components = [], options = {}) {
+    this.components = components.filter(Boolean);
+    for (const component of this.components) component?.setHost?.(this);
+    this.invalidate({ force: true, clear: Boolean(options.clear) });
   }
 
   writeRaw(text = "") {
@@ -158,7 +164,7 @@ export class ZyraComponentHost {
 
     if (!resized && output === this.lastOutput) return;
 
-    if (resized) this.fullRender(lines, { clear: true });
+    if (resized || options.clear) this.fullRender(lines, { clear: true });
     else this.diffRender(lines);
     this.renderedLines = [...lines];
     this.renderedPhysicalRows = countPhysicalRows(lines, width);
