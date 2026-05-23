@@ -572,13 +572,16 @@ function runStatusLineColorRegression() {
   const runtime = {
     profile: "elson",
     terminalTheme: {
-      primary: "\x1b[31m",
-      warning: "\x1b[33m",
-      muted: "\x1b[90m",
-      accent: "\x1b[35m",
-      info: "\x1b[36m",
-      success: "\x1b[32m",
-      error: "\x1b[91m",
+      name: "status-test",
+      colors: {
+        primary: "#ff0000",
+        warning: "#ffff00",
+        muted: "#777777",
+        accent: "#ff00ff",
+        info: "#00ffff",
+        success: "#00ff00",
+        error: "#ff5555",
+      },
     },
     session: {
       model: { id: "gpt-test" },
@@ -595,15 +598,17 @@ function runStatusLineColorRegression() {
   };
   const line = renderStatusLine(runtime, 120);
 
-  assert.match(line, /\x1b\[31m gpt-test/);
-  assert.match(line, /\x1b\[33m medium/);
+  assert.match(line, /\x1b\[38;2;255;0;0m gpt-test/);
+  assert.match(line, /\x1b\[38;2;255;255;0m medium/);
   assert.match(line, /\x1b\[38;5;75melson/);
-  assert.match(line, /\x1b\[33mContext 28% left/);
+  assert.match(line, /\x1b\[38;2;255;255;0mContext 28% left/);
   assert.match(line, /\x1b\[38;5;82m\$0\.300/);
 
   runtime.session.getContextUsage = () => undefined;
+  runtime.session.sessionManager.getEntries = () => [];
   const freshLine = renderStatusLine(runtime, 120);
-  assert.match(freshLine, /\x1b\[32mContext 100% left/);
+  assert.match(freshLine, /\x1b\[38;2;0;255;0mContext 100% left/);
+  assert.match(freshLine, /\x1b\[38;2;119;119;119m\$0\.000/);
 }
 
 function runSystemPanelWidthRegression() {

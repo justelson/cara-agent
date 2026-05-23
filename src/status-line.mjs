@@ -2,6 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { truncateToWidth } from "@earendil-works/pi-tui";
+import { buildTerminalTheme } from "./terminal-theme.mjs";
 
 const sep = " \u00b7 ";
 const reset = "\x1b[0m";
@@ -28,7 +29,7 @@ export function renderStatusLine(runtime, width = Math.max(24, (process.stdout.c
   const cost = formatCost(session);
 
   const maxWidth = Math.max(24, width);
-  const theme = runtime.terminalTheme ?? {};
+  const theme = buildTerminalTheme(runtime.terminalTheme);
   const modelStatus = `${modelLabel} ${thinking}${sep}${profile}`;
   const leftPlain = activity ? ` ${modelStatus}${sep}${activity}` : ` ${modelStatus}`;
   const rightBudget = Math.max(8, maxWidth - visibleWidth(leftPlain) - 1);
@@ -163,7 +164,7 @@ function costColor(theme, cost) {
   if (value >= 0.25) return green3;
   if (value >= 0.05) return green2;
   if (value > 0) return green1;
-  return theme.success;
+  return theme.muted;
 }
 
 function color(style, text) {

@@ -22,7 +22,6 @@ import { applyTerminalTheme, buildTerminalTheme } from "./terminal-theme.mjs";
 const bold = "\x1b[1m";
 const reset = "\x1b[0m";
 const fallbackTheme = buildTerminalTheme();
-const startupSpinnerMs = 80;
 const zyraLogoRows = [
   "┏━━━┳┓ ┏┳━┳━━┓",
   "┣━━┃┃┃ ┃┃┏┫┏┓┃",
@@ -271,23 +270,14 @@ export function createZyraUi(options = {}) {
       appendPanel(codexUsagePanel(stats, theme, host.width()));
     },
     starting(label = "Starting agent") {
-      const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-      let frame = 0;
       let stopped = false;
       const width = () => Math.max(24, (output.columns ?? 100) - 1);
-      const render = () => {
-        if (stopped) return;
-        const text = `${theme.accent}${frames[frame % frames.length]}${reset} ${theme.muted}${label}${reset}`;
-        frame += 1;
-        output.write(`\r${padDisplay(text, width())}`);
-      };
+      const text = `${theme.accent}~${reset} ${theme.muted}${label}...${reset}`;
       output.write("\n");
-      render();
-      const timer = setInterval(render, startupSpinnerMs);
+      output.write(`\r${padDisplay(text, width())}`);
       return () => {
         if (stopped) return;
         stopped = true;
-        clearInterval(timer);
         output.write(`\r${" ".repeat(width())}\r`);
       };
     },
