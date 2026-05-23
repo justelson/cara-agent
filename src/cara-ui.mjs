@@ -524,7 +524,6 @@ function renderToolBlock(toolState, theme = fallbackTheme) {
   const title = toolState.toolName ?? "tool";
   const rows = [
     { kind: "title", text: `${title} ${stateLabel}` },
-    { kind: "hint", text: "summary ..." },
   ];
   const args = summarizeToolArgs(toolState.args);
   if (args) rows.push(...args.flatMap((line) => splitDisplayLines(line)).map((line) => ({ kind: "detail", text: `  ${line}` })));
@@ -604,16 +603,24 @@ function assistantLine(text) {
 }
 
 function renderToolMessage(rows, state, theme = fallbackTheme) {
-  const width = Math.max(24, (output.columns ?? 100) - 1);
-  const contentWidth = Math.max(1, width);
-  const bg = state.isError ? theme.toolErrorBg : state.isDone ? theme.toolSuccessBg : theme.toolBg;
-  const bgLine = (row = "") => {
+  const terminalWidth = Math.max(24, (output.columns ?? 100) - 3);
+  const desiredWidth = Math.max(32, ...rows.map((row) => visibleWidthForTool(row.text ?? "") + 4));
+  const width = Math.min(terminalWidth, desiredWidth);
+  const contentWidth = Math.max(1, width - 4);
+  const borderColor = state.isError ? theme.error : state.isDone ? theme.success : theme.primary;
+  const top = `${borderColor}╭${"─".repeat(width - 2)}╮${reset}`;
+  const bottom = `${borderColor}╰${"─".repeat(width - 2)}╯${reset}`;
+  const line = (row = "") => {
     const item = typeof row === "string" ? { kind: "detail", text: row } : row;
     const color = toolRowColor(item.kind, theme);
     const content = truncate(item.text ?? "", contentWidth);
-    return `${bg}${color}${padDisplay(content, contentWidth)}${reset}`;
+    return `${borderColor}│${reset} ${color}${padDisplay(content, contentWidth)}${reset} ${borderColor}│${reset}`;
   };
-  return ["", bgLine(), ...rows.map((row) => bgLine(row)), bgLine(), ""];
+  return ["", top, ...rows.map((row) => line(row)), bottom, ""];
+}
+
+function visibleWidthForTool(text) {
+  return stripAnsi(String(text ?? "")).length;
 }
 
 function toolRowColor(kind, theme = fallbackTheme) {
