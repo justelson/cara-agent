@@ -39,6 +39,8 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
   let selectedIndex = 0;
   let renderedLines = 0;
   let renderedPromptIndex = 0;
+  let renderedPhysicalRows = 0;
+  let renderedPromptPhysicalIndex = 0;
   let waiting = false;
   let busyStartedAt = 0;
   let busyFrame = 0;
@@ -48,6 +50,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
   let renderedMenuLines = 0;
   let renderedEditorLines = 0;
   let lastRenderedOutput = "";
+  let lastRenderedLines = [];
   let lastSelectedSuggestionKey = "";
   let hasTranscript = false;
   let inputHistory = [];
@@ -83,18 +86,24 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
   };
 
   const clear = () => {
-    if (renderedLines === 0) return;
+    if (renderedLines === 0 && renderedPhysicalRows === 0) return;
     beginBatch();
-    if (renderedPromptIndex > 0) {
-      readline.moveCursor(output, 0, -renderedPromptIndex);
+    const clearWidth = Math.max(1, (output.columns ?? 100) - 1);
+    const rowsAtCurrentWidth = countPhysicalRows(lastRenderedLines, clearWidth);
+    const rowsToMove = Math.max(renderedPromptPhysicalIndex, Math.max(0, rowsAtCurrentWidth - 1));
+    if (rowsToMove > 0) {
+      readline.moveCursor(output, 0, -rowsToMove);
     }
     readline.cursorTo(output, 0);
     readline.clearScreenDown(output);
     renderedLines = 0;
     renderedPromptIndex = 0;
+    renderedPhysicalRows = 0;
+    renderedPromptPhysicalIndex = 0;
     renderedMenuLines = 0;
     renderedEditorLines = 0;
     lastRenderedOutput = "";
+    lastRenderedLines = [];
   };
 
   const render = () => {
@@ -162,9 +171,12 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
     output.write(nextOutput);
     renderedLines = lines.length;
     lastRenderedOutput = nextOutput;
+    lastRenderedLines = [...lines];
     renderedMenuLines = menuLines.length;
     renderedEditorLines = editorLines.length;
     renderedPromptIndex = Math.max(0, renderedLines - 1);
+    renderedPhysicalRows = countPhysicalRows(lines, liveWidth);
+    renderedPromptPhysicalIndex = Math.max(0, renderedPhysicalRows - 1);
     endBatch();
   };
 
@@ -716,6 +728,15 @@ function renderEditorRule(width, theme = buildTerminalTheme()) {
 
 function visibleWidth(text) {
   return stripAnsi(text).length;
+}
+
+function physicalRowsForLine(line, width) {
+  const liveWidth = Math.max(1, Number(width) || 1);
+  return Math.max(1, Math.ceil(visibleWidth(line) / liveWidth));
+}
+
+function countPhysicalRows(lines, width) {
+  return (Array.isArray(lines) ? lines : []).reduce((total, line) => total + physicalRowsForLine(line, width), 0);
 }
 
 function padToVisibleWidth(text, width) {
