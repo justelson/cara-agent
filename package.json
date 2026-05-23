@@ -9,7 +9,7 @@
     "inspect": "node bin/cara.mjs inspect",
     "ask": "node bin/cara.mjs ask",
     "doctor": "node bin/cara.mjs doctor",
-    "check": "node --check src/cara-ui.mjs && node --check src/terminal-input.mjs && node --check src/cara.mjs && node scripts/test-cara-ui-render.mjs && node bin/cara.mjs doctor",
+    "check": "node --check src/cara-ui.mjs && node --check src/terminal-input.mjs && node --check src/cara.mjs && node --check src/tui/cara-tui.mjs && node --check src/tui/component-host.mjs && node --check src/tui/render-utils.mjs && node --check src/tui/components/editor.mjs && node --check src/tui/components/message-components.mjs && node --check src/tui/components/static-panels.mjs && node scripts/test-cara-ui-render.mjs && node bin/cara.mjs doctor",
     "release:zip": "node scripts/build-release.mjs",
     "install:global": "bun link",
     "ui:dev": "bun run --cwd apps/cara-ui dev",
