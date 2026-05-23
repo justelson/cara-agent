@@ -26,9 +26,9 @@ export function createCaraUi(options = {}) {
   let renderInput = () => {};
   let clearInput = () => {};
   let renderTimer = undefined;
-  let assistantCommitTimer = undefined;
   let pendingAssistantCommit = null;
   const committedAssistantIds = new Set();
+  const committedAssistantKeys = new Set();
   let suppressWorking = false;
   let activityLabel = "";
   let progressBox = null;
@@ -139,27 +139,21 @@ export function createCaraUi(options = {}) {
 
   function scheduleAssistantCommit(message, content) {
     const id = assistantMessageIdentity(message);
-    if (id && committedAssistantIds.has(id)) return;
-    pendingAssistantCommit = { id, content };
-    if (assistantCommitTimer) clearTimeout(assistantCommitTimer);
-    assistantCommitTimer = setTimeout(() => {
-      assistantCommitTimer = undefined;
-      flushAssistantCommit();
-    }, 160);
+    const key = assistantContentKey(content);
+    if ((id && committedAssistantIds.has(id)) || committedAssistantKeys.has(key)) return;
+    pendingAssistantCommit = { id, key, content };
   }
 
   function flushAssistantCommit() {
-    if (assistantCommitTimer) {
-      clearTimeout(assistantCommitTimer);
-      assistantCommitTimer = undefined;
-    }
     const pending = pendingAssistantCommit;
     pendingAssistantCommit = null;
-    if (!pending?.content) return;
+    if (!pending?.content || !pending.key) return;
     if (pending.id) {
       if (committedAssistantIds.has(pending.id)) return;
       committedAssistantIds.add(pending.id);
     }
+    if (committedAssistantKeys.has(pending.key)) return;
+    committedAssistantKeys.add(pending.key);
     print(`${formatAssistantContent(pending.content, theme).join("\n")}\n`);
   }
 

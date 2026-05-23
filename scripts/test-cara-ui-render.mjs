@@ -97,7 +97,7 @@ function captureStdout(fn) {
     return true;
   };
   try {
-    fn();
+    fn(() => captured);
   } finally {
     process.stdout.write = originalWrite;
   }
@@ -105,7 +105,7 @@ function captureStdout(fn) {
 }
 
 function runUiEventCaptureRegression() {
-  const captured = captureStdout(() => {
+  const captured = captureStdout((getCaptured) => {
     const ui = createCaraUi();
     ui.event({ type: "message_start", message: assistantMessage() });
     ui.event(updateEvent("Yep. Here’s the useful recap:"));
@@ -115,10 +115,13 @@ function runUiEventCaptureRegression() {
       type: "message_end",
       message: assistantMessage("Yep. Here’s the useful recap:"),
     });
+    assert.equal(getCaptured().includes("Yep"), false, "assistant text must not print before the turn boundary");
     ui.event({
       type: "message_end",
       message: assistantMessage("Yep. Here’s the useful recap:\n\nYou asked where the original Cara project was."),
     });
+    assert.equal(getCaptured().includes("Yep"), false, "later message_end snapshots must still wait for agent_end/turn_end");
+    ui.event({ type: "agent_end" });
     ui.event({ type: "agent_end" });
   });
 
@@ -127,6 +130,7 @@ function runUiEventCaptureRegression() {
     1,
     `UI event path must commit the assistant answer once, not redraw snapshots into transcript. Captured:\n${captured}`,
   );
+  assert.match(captured, /You asked where the original Cara project was/);
 }
 
 function runToolOutputStyleRegression() {
