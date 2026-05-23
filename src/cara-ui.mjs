@@ -44,9 +44,19 @@ export function createCaraUi(options = {}) {
   const committedAssistantIds = new Set();
   const committedAssistantKeys = new Set();
 
+  const writeLines = (lines = []) => {
+    const text = (Array.isArray(lines) ? lines : String(lines ?? "").split(/\r?\n/)).join("\n");
+    if (text) output.write(text.endsWith("\n") ? text : `${text}\n`);
+  };
+
   const appendPanel = (component) => {
-    if (inputActive) host.append(component);
-    else host.printLines(component.render(host.width()));
+    component?.setHost?.(host);
+    host.components.push(component);
+    if (inputActive) {
+      host.invalidate();
+      return;
+    }
+    writeLines(component.render(host.width()));
   };
 
   const appendLines = (lines) => {

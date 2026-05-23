@@ -65,8 +65,8 @@ export async function runTerminalInputLoop(onInput, options = {}, controls = {})
     input.setRawMode(false);
     input.pause();
     controls.clearRenderers?.();
-    host.setInputComponent(null);
     host.dispose();
+    host.setInputComponent(null);
     finish();
   };
 

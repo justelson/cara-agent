@@ -358,6 +358,47 @@ function runOverViewportRedrawRegression() {
   );
 }
 
+function runInteractiveHostUsesAlternateScreenRegression() {
+  const writes = [];
+  const fakeOutput = {
+    columns: 80,
+    rows: 20,
+    write(chunk) {
+      writes.push(String(chunk));
+      return true;
+    },
+    on() {},
+    off() {},
+  };
+  const host = new CaraComponentHost({ output: fakeOutput, autoRender: true });
+  host.setInteractive(true);
+  host.append(new StaticLinesComponent("stream", ["Sure.", "The day arrives without asking,"]));
+  host.invalidate({ force: true });
+  host.dispose();
+  const raw = writes.join("");
+
+  assert.match(raw, /\x1b\[\?1049h/, "interactive rendering should enter the alternate screen buffer");
+  assert.match(raw, /\x1b\[\?1049l/, "interactive cleanup should restore the normal screen buffer");
+}
+
+function runPreInteractivePanelsSurviveInteractiveRegression() {
+  let plain = "";
+  captureStdout(() => {
+    const ui = createCaraUi();
+    ui.banner({
+      project: "C:\\Users\\elson\\my_coding_play\\playground\\Cara's agent",
+      model: "openai-codex/gpt-5.5",
+      thinking: "medium",
+      terminalTheme: "rose-pine",
+    });
+    ui._debugBeginInteractiveForTests();
+    plain = ui._debugRenderLinesForTests(90).map(stripAnsi).join("\n");
+  });
+
+  assert.match(plain, /Cara/);
+  assert.match(plain, /\/start/);
+}
+
 runDeltaStreamingRegression();
 runFullSnapshotRegression();
 runRepeatedSnapshotRegression();
@@ -373,4 +414,6 @@ runWidthFitRegression();
 runStaticPanelsThroughHostRegression();
 runResizeFullRedrawRegression();
 runOverViewportRedrawRegression();
+runInteractiveHostUsesAlternateScreenRegression();
+runPreInteractivePanelsSurviveInteractiveRegression();
 console.log("cara-ui render regression: ok");

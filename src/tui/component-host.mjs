@@ -1,6 +1,9 @@
 import readline from "node:readline";
 import { stdout as defaultOutput } from "node:process";
 import {
+  alternateScreenEnd,
+  alternateScreenStart,
+  clearScreen,
   countPhysicalRows,
   hideCursor,
   physicalRowsForLine,
@@ -29,6 +32,8 @@ export class CaraComponentHost {
     this.batchOpen = false;
     this.lastOutput = "";
     this.autoRender = Boolean(options.autoRender);
+    this.useAlternateScreen = options.useAlternateScreen ?? true;
+    this.alternateScreenActive = false;
   }
 
   width() {
@@ -41,7 +46,16 @@ export class CaraComponentHost {
 
   setInteractive(value) {
     this.interactive = Boolean(value);
-    if (this.interactive) this.output.write(`${hideCursor}`);
+    if (this.interactive) {
+      if (this.useAlternateScreen && !this.alternateScreenActive) {
+        this.output.write(`${alternateScreenStart}${clearScreen}`);
+        this.alternateScreenActive = true;
+        this.renderedLines = [];
+        this.renderedPhysicalRows = 0;
+        this.lastOutput = "";
+      }
+      this.output.write(`${hideCursor}`);
+    }
   }
 
   setInputComponent(component) {
@@ -185,11 +199,17 @@ export class CaraComponentHost {
   dispose() {
     if (this.renderTimer) clearTimeout(this.renderTimer);
     this.renderTimer = undefined;
+    this.endBatch(true);
     if (this.interactive) {
       this.clearRendered();
-      this.output.write(`${showCursor}\n`);
+      this.output.write(showCursor);
     }
-    this.endBatch(true);
+    if (this.alternateScreenActive) {
+      this.output.write(`${clearScreen}${alternateScreenEnd}`);
+      this.alternateScreenActive = false;
+    } else if (this.interactive) {
+      this.output.write("\n");
+    }
     this.interactive = false;
   }
 }
