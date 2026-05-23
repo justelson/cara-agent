@@ -23,6 +23,14 @@ const bold = "\x1b[1m";
 const reset = "\x1b[0m";
 const fallbackTheme = buildTerminalTheme();
 const startupSpinnerMs = 80;
+const zyraLogoRows = [
+  "┏━━━┳┓ ┏┳━┳━━┓",
+  "┣━━┃┃┃ ┃┃┏┫┏┓┃",
+  "┃┃━━┫┗━┛┃┃┃┏┓┃",
+  "┗━━━┻━┓┏┻┛┗┛┗┛",
+  "    ┏━┛┃",
+  "    ┗━━┛",
+];
 const outroMessages = loadJson("./outro-messages.json", {
   sessionComplete: ["another great coding session complete... or not, who knows"],
   fromElson: ["I am always rooting for her."],
@@ -228,16 +236,7 @@ export function createCaraUi(options = {}) {
 
   return {
     banner(status = {}) {
-      const project = status.project ?? options.project ?? process.cwd();
-      const model = status.model ?? options.model ?? "loading";
-      const thinking = status.thinking ?? options.thinking ?? "medium";
-      const themeName = status.terminalTheme ?? theme.name ?? "theme";
-      const projectPath = formatHomePath(project);
-      appendLines([
-        `${theme.accent}✦${reset} ${bold}${theme.primary}Cara${reset}`,
-        `   ${theme.info}${model}${reset} ${theme.muted}·${reset} ${theme.warning}${thinking}${reset} ${theme.muted}·${reset} ${theme.accent}${themeName}${reset} ${theme.muted}· ${projectPath}${reset}`,
-        "",
-      ]);
+      appendPanel(new StartupBannerComponent(status, { ...options, theme }));
     },
     commands() {
       appendPanel(commandsPanel(theme, host.width()));
@@ -384,6 +383,112 @@ export function createCaraUi(options = {}) {
       return host.renderLines(width);
     },
   };
+}
+
+class StartupBannerComponent {
+  constructor(status = {}, options = {}) {
+    this.key = `startup-${Date.now()}`;
+    this.status = status;
+    this.options = options;
+  }
+
+  setHost(host) {
+    this.host = host;
+  }
+
+  render(width = 100) {
+    return renderStartupBanner(this.status, this.options, width);
+  }
+}
+
+function renderStartupBanner(status = {}, options = {}, width = 100) {
+  const theme = options.theme ?? fallbackTheme;
+  const maxWidth = Math.max(24, Number(width) || 100);
+  const project = status.project ?? options.project ?? process.cwd();
+  const model = status.model ?? options.model ?? "loading";
+  const profile = status.profile ?? options.profile ?? "";
+  const thinking = status.thinking ?? options.thinking ?? "medium";
+  const themeName = status.terminalTheme ?? theme.name ?? "theme";
+  const projectPath = formatHomePath(project);
+  const logo = centeredBlock(zyraLogoRows, maxWidth, `${bold}${theme.primary}`, reset);
+  const subtitle = compactJoin([shortModelName(model), profile]);
+  const lines = ["", ...logo.rows, ""];
+
+  if (subtitle) {
+    lines.push(centerNearBlock(`${theme.info}${subtitle}${reset}`, maxWidth, logo.left, logo.width));
+    lines.push("");
+  }
+
+  lines.push(
+    ...renderStartupSection("Context", contextBannerValues(status, projectPath), theme, maxWidth),
+    "",
+    ...renderStartupSection("Runtime", [compactJoin([model, thinking])], theme, maxWidth),
+    "",
+    ...renderStartupSection("Theme", [themeName], theme, maxWidth),
+    "",
+  );
+
+  return lines;
+}
+
+function centeredBlock(rows, width, prefix = "", suffix = "") {
+  const blockWidth = Math.max(...rows.map((line) => stripAnsi(line).length), 0);
+  const left = Math.max(0, Math.floor((width - blockWidth) / 2));
+  const pad = " ".repeat(left);
+  return {
+    left,
+    width: blockWidth,
+    rows: rows.map((line) => `${pad}${prefix}${line}${suffix}`),
+  };
+}
+
+function centerNearBlock(text, width, blockLeft, blockWidth) {
+  const value = String(text ?? "");
+  const valueWidth = stripAnsi(value).length;
+  const left =
+    valueWidth <= blockWidth
+      ? blockLeft + Math.floor((blockWidth - valueWidth) / 2)
+      : Math.floor((width - valueWidth) / 2);
+  return `${" ".repeat(Math.max(0, left))}${value}`;
+}
+
+function renderStartupSection(label, values, theme, width) {
+  const bodyWidth = Math.max(1, width - 2);
+  const body = (Array.isArray(values) ? values : [values]).map((value) => String(value ?? "").trim()).filter(Boolean);
+  const lines = [`${theme.info}[${label}]${reset}`];
+  for (const value of body.length ? body : ["none"]) {
+    lines.push(`  ${theme.muted}${truncate(value, bodyWidth)}${reset}`);
+  }
+  return lines;
+}
+
+function contextBannerValues(status, projectPath) {
+  const memoryFiles = Array.isArray(status.projectMemory)
+    ? status.projectMemory.map((file) => String(file ?? "").trim()).filter(Boolean)
+    : [];
+  return uniqueCompact([...memoryFiles.slice(0, 2), projectPath]);
+}
+
+function uniqueCompact(values) {
+  const seen = new Set();
+  const result = [];
+  for (const value of values.map((item) => String(item ?? "").trim()).filter(Boolean)) {
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(value);
+  }
+  return result;
+}
+
+function compactJoin(values) {
+  return values.map((value) => String(value ?? "").trim()).filter(Boolean).join(" · ");
+}
+
+function shortModelName(model) {
+  const value = String(model ?? "").trim();
+  if (!value) return "";
+  return value.split("/").filter(Boolean).at(-1) ?? value;
 }
 
 function summarizeTool(event) {

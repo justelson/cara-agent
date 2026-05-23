@@ -410,16 +410,24 @@ function runPreInteractivePanelsSurviveInteractiveRegression() {
     ui.banner({
       project: "C:\\Users\\elson\\my_coding_play\\playground\\Cara's agent",
       model: "openai-codex/gpt-5.5",
+      profile: "elson",
       thinking: "medium",
       terminalTheme: "rose-pine",
+      projectMemory: ["AGENTS.md"],
     });
     ui._debugBeginInteractiveForTests();
     plain = ui._debugRenderLinesForTests(90).map(stripAnsi).join("\n");
   });
 
-  assert.match(plain, /Cara/);
-  assert.match(plain, /openai-codex\/gpt-5\.5/);
+  assert.match(plain, /┏━━━┳┓/);
+  assert.match(plain, /gpt-5\.5 · elson/);
+  assert.match(plain, /\[Context\]/);
+  assert.match(plain, /AGENTS\.md/);
+  assert.match(plain, /\[Runtime\]/);
+  assert.match(plain, /openai-codex\/gpt-5\.5 · medium/);
+  assert.match(plain, /\[Theme\]/);
   assert.match(plain, /rose-pine/);
+  assert.equal(plain.includes("✦ Cara"), false, "startup banner should use the Zyra wordmark");
   assert.equal(plain.includes("to orient"), false, "startup banner should stay compact and not print command hints");
 }
 
