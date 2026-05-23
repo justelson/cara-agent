@@ -232,12 +232,10 @@ export function createCaraUi(options = {}) {
       const model = status.model ?? options.model ?? "loading";
       const thinking = status.thinking ?? options.thinking ?? "medium";
       const themeName = status.terminalTheme ?? theme.name ?? "theme";
+      const projectPath = formatHomePath(project);
       appendLines([
         `${theme.accent}✦${reset} ${bold}${theme.primary}Cara${reset}`,
-        `   ${theme.muted}${formatHomePath(project)}${reset}`,
-        `   ${theme.info}${model}${reset} ${theme.muted}·${reset} ${theme.warning}${thinking}${reset} ${theme.muted}·${reset} ${theme.accent}${themeName}${reset}`,
-        "",
-        `   ${theme.primary}/start${reset} ${theme.muted}to orient ·${reset} ${theme.accent}/themes${reset} ${theme.muted}to change the room ·${reset} ${theme.success}@file${reset} ${theme.muted}to bring context${reset}`,
+        `   ${theme.info}${model}${reset} ${theme.muted}·${reset} ${theme.warning}${thinking}${reset} ${theme.muted}·${reset} ${theme.accent}${themeName}${reset} ${theme.muted}· ${projectPath}${reset}`,
         "",
       ]);
     },

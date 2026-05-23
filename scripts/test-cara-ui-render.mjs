@@ -418,7 +418,9 @@ function runPreInteractivePanelsSurviveInteractiveRegression() {
   });
 
   assert.match(plain, /Cara/);
-  assert.match(plain, /\/start/);
+  assert.match(plain, /openai-codex\/gpt-5\.5/);
+  assert.match(plain, /rose-pine/);
+  assert.equal(plain.includes("to orient"), false, "startup banner should stay compact and not print command hints");
 }
 
 function runTranscriptScrollKeepsInputPinnedRegression() {
