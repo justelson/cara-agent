@@ -553,7 +553,30 @@ export function mergeAssistantTextDelta(currentText, deltaText) {
   if (!deltaText) return currentText;
   if (deltaText === currentText || currentText.endsWith(deltaText)) return currentText;
   if (deltaText.startsWith(currentText)) return deltaText;
+  const sharedPrefix = commonPrefixLength(currentText, deltaText);
+  if (sharedPrefix >= 5 && deltaText.length >= Math.floor(currentText.length * 0.6)) return deltaText;
+  if (sharedPrefix >= 12 && deltaText.length >= Math.floor(currentText.length * 0.35)) return deltaText;
+  if (currentText.includes(deltaText) && (deltaText.length >= 8 || /\r|\n/.test(deltaText))) return currentText;
+
+  const overlap = suffixPrefixOverlap(currentText, deltaText);
+  if (overlap > 0) return `${currentText}${deltaText.slice(overlap)}`;
+
   return `${currentText}${deltaText}`;
+}
+
+function commonPrefixLength(left, right) {
+  const max = Math.min(left.length, right.length);
+  let index = 0;
+  while (index < max && left[index] === right[index]) index += 1;
+  return index;
+}
+
+function suffixPrefixOverlap(left, right) {
+  const max = Math.min(left.length, right.length);
+  for (let size = max; size > 0; size -= 1) {
+    if (left.slice(-size) === right.slice(0, size)) return size;
+  }
+  return 0;
 }
 
 function longerAssistantContent(...contents) {

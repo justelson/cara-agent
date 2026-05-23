@@ -16,6 +16,14 @@ function updateEvent(text, delta, id = "assistant-1") {
   };
 }
 
+function deltaOnlyEvent(delta, id = "assistant-1") {
+  return {
+    type: "message_update",
+    message: assistantMessage("", id),
+    assistantMessageEvent: { type: "text_delta", delta },
+  };
+}
+
 function runDeltaStreamingRegression() {
   const lifecycle = new AssistantMessageLifecycle();
   lifecycle.start(assistantMessage());
@@ -87,6 +95,24 @@ function runMergeHelperRegression() {
   assert.equal(mergeAssistantTextDelta("Yep.", " Yep again."), "Yep. Yep again.");
   assert.equal(mergeAssistantTextDelta("Yep.", "Yep."), "Yep.");
   assert.equal(mergeAssistantTextDelta("Yep.", "Yep. Here"), "Yep. Here");
+  assert.equal(mergeAssistantTextDelta("Sure.", "Sure.\n\nThe day arrives"), "Sure.\n\nThe day arrives");
+  assert.equal(mergeAssistantTextDelta("Sure.\n\nSure.", "Sure.\n\nThe day arrives"), "Sure.\n\nThe day arrives");
+  assert.equal(mergeAssistantTextDelta("The day arrives", "arrives without asking"), "The day arrives without asking");
+}
+
+function runSnapshotDeltaPollutionRegression() {
+  const lifecycle = new AssistantMessageLifecycle();
+  lifecycle.start(assistantMessage());
+
+  lifecycle.update(deltaOnlyEvent("Sure."));
+  lifecycle.update(deltaOnlyEvent("Sure.\n\nThe day arrives without asking,"));
+  lifecycle.update(deltaOnlyEvent("Sure.\n\nThe day arrives without asking,\nsoft-footed at the window,"));
+
+  assert.equal(
+    lifecycle.getTransient().text,
+    "Sure.\n\nThe day arrives without asking,\nsoft-footed at the window,",
+    "snapshot-shaped text_delta events must replace/overlap, not append repeated prefixes",
+  );
 }
 
 function captureStdout(fn) {
@@ -409,6 +435,7 @@ runFullSnapshotRegression();
 runRepeatedSnapshotRegression();
 runMarkdownCodeBlockRegression();
 runMergeHelperRegression();
+runSnapshotDeltaPollutionRegression();
 runUiEventCaptureRegression();
 runToolOutputStyleRegression();
 runInteractiveAssistantComponentRegression();
