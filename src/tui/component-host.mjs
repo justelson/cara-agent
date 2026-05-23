@@ -6,7 +6,6 @@ import {
   clearScreen,
   countPhysicalRows,
   hideCursor,
-  physicalRowsForLine,
   renderLinesWithinWidth,
   showCursor,
   syncEnd,
@@ -32,9 +31,8 @@ export class CaraComponentHost {
     this.batchOpen = false;
     this.lastOutput = "";
     this.autoRender = Boolean(options.autoRender);
-    this.useAlternateScreen = options.useAlternateScreen ?? true;
+    this.useAlternateScreen = options.useAlternateScreen ?? false;
     this.alternateScreenActive = false;
-    this.scrollOffsetRows = 0;
   }
 
   width() {
@@ -57,6 +55,15 @@ export class CaraComponentHost {
       }
       this.output.write(`${hideCursor}`);
     }
+  }
+
+  markRendered(width = this.width()) {
+    const lines = this.renderLines(width);
+    this.renderedLines = [...lines];
+    this.renderedPhysicalRows = countPhysicalRows(lines, width);
+    this.lastOutput = lines.join("\n");
+    this.previousWidth = width;
+    this.previousHeight = this.height();
   }
 
   setInputComponent(component) {
@@ -139,7 +146,7 @@ export class CaraComponentHost {
     this.previousWidth = width;
     this.previousHeight = height;
 
-    const lines = this.interactive ? this.renderInteractiveLines(width, height) : this.renderLines(width);
+    const lines = this.renderLines(width);
     const output = lines.join("\n");
 
     if (!this.interactive) {
@@ -149,12 +156,10 @@ export class CaraComponentHost {
       return;
     }
 
-    if (!resized && !options.force && output === this.lastOutput) return;
+    if (!resized && output === this.lastOutput) return;
 
-    this.beginBatch();
-    this.output.write(clearScreen);
-    if (output) this.output.write(output);
-    this.endBatch();
+    if (resized) this.fullRender(lines, { clear: true });
+    else this.diffRender(lines);
     this.renderedLines = [...lines];
     this.renderedPhysicalRows = countPhysicalRows(lines, width);
     this.lastOutput = output;
@@ -180,61 +185,68 @@ export class CaraComponentHost {
     return renderLinesWithinWidth(lines, width);
   }
 
-  renderInteractiveLines(width = this.width(), height = this.height()) {
-    const contentLines = this.renderContentLines(width);
-    const fixedLines = this.renderFixedLines(width);
-    const fixedRows = countPhysicalRows(fixedLines, width);
-    const contentHeight = Math.max(0, height - fixedRows);
-
-    if (contentHeight <= 0) {
-      this.scrollOffsetRows = 0;
-      return visibleViewportLines(fixedLines, width, height);
-    }
-
-    const maxScrollOffset = maxScrollOffsetFor(contentLines, width, contentHeight);
-    this.scrollOffsetRows = clamp(this.scrollOffsetRows, 0, maxScrollOffset);
-    return [
-      ...visibleViewportLines(contentLines, width, contentHeight, this.scrollOffsetRows),
-      ...fixedLines,
-    ];
-  }
-
   scrollBy(rows) {
-    const width = this.width();
-    const height = this.height();
-    const fixedRows = countPhysicalRows(this.renderFixedLines(width), width);
-    const contentHeight = Math.max(0, height - fixedRows);
-    const maxScrollOffset = maxScrollOffsetFor(this.renderContentLines(width), width, contentHeight);
-    const next = clamp(this.scrollOffsetRows + rows, 0, maxScrollOffset);
-    if (next === this.scrollOffsetRows) return false;
-    this.scrollOffsetRows = next;
-    this.invalidate({ force: true });
-    return true;
+    void rows;
+    return false;
   }
 
   scrollToBottom() {
-    if (this.scrollOffsetRows === 0) return false;
-    this.scrollOffsetRows = 0;
-    this.invalidate({ force: true });
-    return true;
+    return false;
   }
 
   scrollToTop() {
-    const width = this.width();
-    const fixedRows = countPhysicalRows(this.renderFixedLines(width), width);
-    const contentHeight = Math.max(0, this.height() - fixedRows);
-    const maxScrollOffset = maxScrollOffsetFor(this.renderContentLines(width), width, contentHeight);
-    if (this.scrollOffsetRows === maxScrollOffset) return false;
-    this.scrollOffsetRows = maxScrollOffset;
-    this.invalidate({ force: true });
-    return true;
+    return false;
   }
 
   canScroll() {
-    const width = this.width();
-    const fixedRows = countPhysicalRows(this.renderFixedLines(width), width);
-    const contentHeight = Math.max(0, this.height() - fixedRows);
-    return maxScrollOffsetFor(this.renderContentLines(width), width, contentHeight) > 0;
+    return false;
+  }
+
+  fullRender(lines, options = {}) {
+    this.beginBatch();
+    if (options.clear) this.output.write(`${clearScreen}\x1b[3J`);
+    const output = lines.join("\n");
+    if (output) this.output.write(output);
+    this.endBatch();
+  }
+
+  diffRender(lines) {
+    if (this.renderedLines.length === 0) {
+      this.fullRender(lines, { clear: false });
+      return;
+    }
+
+    const previous = this.renderedLines;
+    let firstChanged = -1;
+    const max = Math.max(previous.length, lines.length);
+    for (let index = 0; index < max; index += 1) {
+      if ((previous[index] ?? "") !== (lines[index] ?? "")) {
+        firstChanged = index;
+        break;
+      }
+    }
+    if (firstChanged === -1) return;
+
+    const viewportTop = Math.max(0, previous.length - this.height());
+    if (firstChanged < viewportTop) {
+      this.fullRender(lines, { clear: true });
+      return;
+    }
+
+    const rowsUp = Math.max(0, previous.length - firstChanged - 1);
+    let buffer = "";
+    if (rowsUp > 0) buffer += `\x1b[${rowsUp}A`;
+    buffer += firstChanged >= previous.length && previous.length > 0 ? "\r\n" : "\r";
+
+    for (let index = firstChanged; index < lines.length; index += 1) {
+      if (index > firstChanged) buffer += "\r\n";
+      buffer += `\x1b[2K${lines[index]}`;
+    }
+    if (previous.length > lines.length) buffer += "\x1b[J";
+
+    this.beginBatch();
+    this.output.write(buffer);
+    this.endBatch();
   }
 
   clearRendered(width = this.width()) {
@@ -266,8 +278,10 @@ export class CaraComponentHost {
     if (this.renderTimer) clearTimeout(this.renderTimer);
     this.renderTimer = undefined;
     this.endBatch(true);
-    if (this.interactive) {
+    if (this.interactive && this.alternateScreenActive) {
       this.clearRendered();
+      this.output.write(showCursor);
+    } else if (this.interactive) {
       this.output.write(showCursor);
     }
     if (this.alternateScreenActive) {
@@ -304,35 +318,4 @@ export class StaticLinesComponent {
 function safeRender(component, width) {
   const lines = component.render?.(width);
   return Array.isArray(lines) ? lines : [];
-}
-
-function visibleViewportLines(lines, width, height, scrollOffsetRows = 0) {
-  const maxRows = Math.max(1, Number(height) || 1);
-  const skipRows = Math.max(0, Number(scrollOffsetRows) || 0);
-  const kept = [];
-  let rows = 0;
-  let skipped = 0;
-
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const line = lines[index];
-    const lineRows = physicalRowsForLine(line, width);
-    if (skipped < skipRows) {
-      skipped += lineRows;
-      continue;
-    }
-    if (kept.length > 0 && rows + lineRows > maxRows) break;
-    kept.unshift(line);
-    rows += lineRows;
-    if (rows >= maxRows) break;
-  }
-
-  return kept;
-}
-
-function maxScrollOffsetFor(lines, width, height) {
-  return Math.max(0, countPhysicalRows(lines, width) - Math.max(0, height));
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
 }

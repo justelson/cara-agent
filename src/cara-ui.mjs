@@ -57,6 +57,7 @@ export function createCaraUi(options = {}) {
       return;
     }
     writeLines(component.render(host.width()));
+    host.markRendered();
   };
 
   const appendLines = (lines) => {

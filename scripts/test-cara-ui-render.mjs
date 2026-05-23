@@ -2,9 +2,8 @@
 import assert from "node:assert/strict";
 import { AssistantMessageLifecycle, createCaraUi, mergeAssistantTextDelta } from "../src/cara-ui.mjs";
 import { renderStatusLine } from "../src/status-line.mjs";
-import { routeTerminalInputText } from "../src/terminal-input.mjs";
 import { CaraComponentHost, EditorComponent, StaticLinesComponent } from "../src/tui/cara-tui.mjs";
-import { countPhysicalRows, stripAnsi } from "../src/tui/render-utils.mjs";
+import { stripAnsi } from "../src/tui/render-utils.mjs";
 
 function assistantMessage(text = "", id = "assistant-1") {
   return { id, role: "assistant", content: text ? [{ type: "text", text }] : [] };
@@ -351,7 +350,6 @@ function runResizeFullRedrawRegression() {
 
 function runOverViewportRedrawRegression() {
   const writes = [];
-  const moves = [];
   const fakeOutput = {
     columns: 80,
     rows: 8,
@@ -361,37 +359,26 @@ function runOverViewportRedrawRegression() {
     },
     on() {},
     off() {},
-    cursorTo() {
-      writes.push("[cursorTo]");
-    },
-    moveCursor(_output, dx, dy) {
-      moves.push({ dx, dy });
-      writes.push(`[moveCursor:${dx},${dy}]`);
-    },
-    clearScreenDown() {
-      writes.push("[clearScreenDown]");
-    },
   };
   const host = new CaraComponentHost({ output: fakeOutput, autoRender: true });
   host.setInteractive(true);
-  host.append(new StaticLinesComponent("long", Array.from({ length: 40 }, (_, index) => `line ${index + 1}`)));
+  const component = host.append(new StaticLinesComponent("long", Array.from({ length: 40 }, (_, index) => `line ${index + 1}`)));
   host.invalidate({ force: true });
+  assert.equal(host.renderedLines.length > fakeOutput.rows, true, "normal-screen rendering should preserve scrollback instead of clipping to the viewport");
 
-  assert.equal(countPhysicalRows(host.renderedLines, host.width()) <= fakeOutput.rows, true, "interactive host must only own visible viewport rows");
+  const beforeSameRender = writes.length;
   host.invalidate({ force: true });
-  assert.equal(
-    moves.every((move) => Math.abs(move.dy) <= fakeOutput.rows - 1),
-    true,
-    "clear must never seek above the visible viewport when transcript exceeds terminal height",
-  );
-  assert.equal(
-    writes.filter((chunk) => chunk.includes("\x1b[2J\x1b[H")).length >= 2,
-    true,
-    "interactive redraws should clear from absolute screen home instead of appending stream snapshots",
-  );
+  assert.equal(writes.length, beforeSameRender, "unchanged interactive renders must not append duplicate snapshots");
+
+  const beforeTailRender = writes.length;
+  component.setLines(Array.from({ length: 41 }, (_, index) => `line ${index + 1}`));
+  host.invalidate({ force: true });
+  const tailWrite = writes.slice(beforeTailRender).join("");
+  assert.match(tailWrite, /line 41/, "stream growth should render only the changed tail");
+  assert.equal(tailWrite.includes("line 1"), false, "stream growth must not replay the full transcript");
 }
 
-function runInteractiveHostUsesAlternateScreenRegression() {
+function runInteractiveHostUsesNormalScreenRegression() {
   const writes = [];
   const fakeOutput = {
     columns: 80,
@@ -410,8 +397,10 @@ function runInteractiveHostUsesAlternateScreenRegression() {
   host.dispose();
   const raw = writes.join("");
 
-  assert.match(raw, /\x1b\[\?1049h/, "interactive rendering should enter the alternate screen buffer");
-  assert.match(raw, /\x1b\[\?1049l/, "interactive cleanup should restore the normal screen buffer");
+  assert.equal(raw.includes("\x1b[?1049h"), false, "interactive chat should not enter the alternate screen buffer");
+  assert.equal(raw.includes("\x1b[?1049l"), false, "interactive chat should leave normal terminal scrollback selectable");
+  assert.equal(raw.includes("\x1b[?1000h"), false, "interactive chat must not enable mouse tracking");
+  assert.equal(raw.includes("\x1b[?1006h"), false, "interactive chat must not capture mouse selection");
 }
 
 function runPreInteractivePanelsSurviveInteractiveRegression() {
@@ -447,16 +436,12 @@ function runTranscriptScrollKeepsInputPinnedRegression() {
   host.append(new StaticLinesComponent("content", Array.from({ length: 30 }, (_, index) => `line ${index + 1}`)));
   host.setInputComponent(new StaticLinesComponent("input", ["> input", "", "status"]));
 
-  const bottom = host.renderInteractiveLines(79, 10).map(stripAnsi);
-  assert.equal(bottom.at(-3), "> input");
-  assert.equal(bottom.at(-1), "status");
-  assert.equal(bottom.some((line) => line.includes("line 30")), true);
-
-  assert.equal(host.scrollBy(8), true);
-  const scrolled = host.renderInteractiveLines(79, 10).map(stripAnsi);
-  assert.equal(scrolled.at(-3), "> input");
-  assert.equal(scrolled.at(-1), "status");
-  assert.equal(scrolled.some((line) => line.includes("line 30")), false, "scrolling up should reveal older transcript lines without moving input");
+  const lines = host.renderLines(79).map(stripAnsi);
+  assert.equal(lines.some((line) => line.includes("line 1")), true);
+  assert.equal(lines.some((line) => line.includes("line 30")), true);
+  assert.equal(lines.at(-3), "> input");
+  assert.equal(lines.at(-1), "status");
+  assert.equal(host.scrollBy(8), false, "normal terminal scrollback should handle scroll without app-owned mouse capture");
 }
 
 function runEditorStatusGapRegression() {
@@ -470,26 +455,20 @@ function runEditorStatusGapRegression() {
   assert.equal(lines.at(-1), "STATUS");
 }
 
-async function runEditorScrollPreemptsPromptRotationRegression() {
-  let scrolledRows = 0;
+function runEditorBusySpacingRegression() {
   const editor = new EditorComponent({
-    starterRecommendations: [{ prompt: "write a small note" }],
+    getBusy: () => true,
+    getActivityLabel: () => "thinking",
     suggestions: () => [],
     theme: {},
   });
-  editor.setHost({
-    canScroll: () => true,
-    height: () => 24,
-    scrollBy(rows) {
-      scrolledRows += rows;
-      return true;
-    },
-    invalidate() {},
-  });
+  editor.hasTranscript = true;
 
-  await editor.handleKeypress("", { name: "up" });
-  assert.equal(scrolledRows, 3);
-  assert.equal(editor.buffer, "", "up should scroll transcript before it inserts starter prompts when content can scroll");
+  const lines = editor.render(80).map(stripAnsi);
+  const activityIndex = lines.findIndex((line) => line.includes("thinking"));
+  assert.ok(activityIndex > 0, "busy activity line should render after transcript spacing");
+  assert.equal(lines[activityIndex - 1], "", "busy activity line should have breathing room above");
+  assert.equal(lines[activityIndex + 1], "", "busy activity line should have breathing room below");
 }
 
 function runStatusLineColorRegression() {
@@ -526,37 +505,6 @@ function runStatusLineColorRegression() {
   assert.match(line, /\x1b\[38;5;82m\$0\.300/);
 }
 
-function runMouseWheelInputRoutingRegression() {
-  const typed = [];
-  const wheels = [];
-  const handlers = {
-    writeKeypressData: (value) => typed.push(value),
-    onWheel: (direction) => wheels.push(direction),
-  };
-
-  let pending = routeTerminalInputText(`ab\x1b[<64;10;10Mcd\x1b[<65;10;10M`, handlers);
-  assert.equal(pending, "");
-  assert.deepEqual(typed, ["ab", "cd"]);
-  assert.deepEqual(wheels, [1, -1]);
-
-  typed.length = 0;
-  wheels.length = 0;
-  pending = routeTerminalInputText(`x\x1b[<64;10`, handlers);
-  assert.equal(pending, "\x1b[<64;10");
-  assert.deepEqual(typed, ["x"]);
-  assert.deepEqual(wheels, []);
-
-  pending = routeTerminalInputText(`${pending};10M y`, handlers);
-  assert.equal(pending, "");
-  assert.deepEqual(typed, ["x", " y"]);
-  assert.deepEqual(wheels, [1]);
-
-  typed.length = 0;
-  pending = routeTerminalInputText("\x1b", handlers);
-  assert.equal(pending, "");
-  assert.deepEqual(typed, ["\x1b"], "plain escape must still reach the editor");
-}
-
 runDeltaStreamingRegression();
 runFullSnapshotRegression();
 runRepeatedSnapshotRegression();
@@ -573,11 +521,10 @@ runWidthFitRegression();
 runStaticPanelsThroughHostRegression();
 runResizeFullRedrawRegression();
 runOverViewportRedrawRegression();
-runInteractiveHostUsesAlternateScreenRegression();
+runInteractiveHostUsesNormalScreenRegression();
 runPreInteractivePanelsSurviveInteractiveRegression();
 runTranscriptScrollKeepsInputPinnedRegression();
 runEditorStatusGapRegression();
-await runEditorScrollPreemptsPromptRotationRegression();
+runEditorBusySpacingRegression();
 runStatusLineColorRegression();
-runMouseWheelInputRoutingRegression();
 console.log("cara-ui render regression: ok");

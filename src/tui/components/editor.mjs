@@ -79,7 +79,11 @@ export class EditorComponent {
     const showStarterRecommendations = this.shouldShowStarterRecommendations();
     if (this.hasTranscript && !isBusy) lines.push("");
     if (showStarterRecommendations) lines.push(renderStarterRecommendationLine(this.starterRecommendations[0], width, this.theme));
-    if (isBusy) lines.push(renderInputActivityLine(this.busyFrame, this.theme, activityLabel));
+    if (isBusy) {
+      if (this.hasTranscript) lines.push("");
+      lines.push(renderInputActivityLine(this.busyFrame, this.theme, activityLabel));
+      lines.push("");
+    }
 
     const prompt = `${this.theme.primary}>${fgReset} `;
     const displayText = displayTextFor(this.buffer, this.pastedBlocks);
