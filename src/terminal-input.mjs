@@ -88,7 +88,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
   const clear = () => {
     if (renderedLines === 0 && renderedPhysicalRows === 0) return;
     beginBatch();
-    const clearWidth = Math.max(1, (output.columns ?? 100) - 1);
+    const clearWidth = terminalRenderWidth();
     const rowsAtCurrentWidth = countPhysicalRows(lastRenderedLines, clearWidth);
     const rowsToMove = Math.max(renderedPromptPhysicalIndex, Math.max(0, rowsAtCurrentWidth - 1));
     if (rowsToMove > 0) {
@@ -107,7 +107,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls) {
   };
 
   const render = () => {
-    const liveWidth = Math.max(24, (output.columns ?? 100) - 1);
+    const liveWidth = terminalRenderWidth();
     const turnActive = controls.getBusy() || waiting;
     const isBusy = turnActive && !controls.suppressWorking?.();
     if (turnActive && !busyStartedAt) busyStartedAt = Date.now();
@@ -702,7 +702,7 @@ function renderStarterRecommendationLine(item, width, theme = buildTerminalTheme
   return `${prefix}${theme.primary}${promptText}${reset}${hint}`;
 }
 
-function renderEditorLines({ prompt, text = "", placeholder = "message..." }, width = Math.max(24, (output.columns ?? 100) - 1), theme = buildTerminalTheme()) {
+function renderEditorLines({ prompt, text = "", placeholder = "message..." }, width = terminalRenderWidth(), theme = buildTerminalTheme()) {
   const promptWidth = visibleWidth(prompt);
   const rowWidth = Math.max(1, width - promptWidth);
 
@@ -728,6 +728,10 @@ function renderEditorRule(width, theme = buildTerminalTheme()) {
 
 function visibleWidth(text) {
   return stripAnsi(text).length;
+}
+
+function terminalRenderWidth() {
+  return Math.max(24, (output.columns ?? 100) - 3);
 }
 
 function physicalRowsForLine(line, width) {
@@ -765,7 +769,7 @@ function stripAnsi(text) {
 }
 
 function renderUserMessage(text, theme = buildTerminalTheme()) {
-  const width = Math.max(24, (output.columns ?? 100) - 1);
+  const width = terminalRenderWidth();
   const contentWidth = Math.max(1, width);
   const rows = wrapPlain(`> ${text}`, contentWidth);
   const bgLine = (content = "") => {
