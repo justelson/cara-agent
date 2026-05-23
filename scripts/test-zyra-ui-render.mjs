@@ -424,7 +424,7 @@ function runPreInteractivePanelsSurviveInteractiveRegression() {
 
   assert.match(plain, /┏━━━┳┓/);
   assert.match(plain, /gpt-5\.5 · elson/);
-  assert.match(raw, /\x1b\[38;5;75m\[Context\]/);
+  assert.match(raw, /\x1b\[38;2;49;116;143m\[Context\]/);
   assert.match(plain, /\[Context\]/);
   assert.match(plain, /AGENTS\.md/);
   assert.match(plain, /\[Runtime\]/);
@@ -433,6 +433,33 @@ function runPreInteractivePanelsSurviveInteractiveRegression() {
   assert.match(plain, /rose-pine/);
   assert.equal(plain.includes("✦ Cara"), false, "startup banner should use the Zyra wordmark");
   assert.equal(plain.includes("to orient"), false, "startup banner should stay compact and not print command hints");
+}
+
+function runStartupSectionLabelsUseActiveThemeRegression() {
+  let raw = "";
+  captureStdout(() => {
+    const ui = createZyraUi({
+      terminalTheme: {
+        name: "pill-test",
+        colors: {
+          info: "#12ab34",
+        },
+      },
+    });
+    ui.banner({
+      project: "C:\\Users\\elson\\my_coding_play\\playground\\Cara's agent",
+      model: "openai-codex/gpt-5.5",
+      profile: "elson",
+      thinking: "medium",
+      terminalTheme: "pill-test",
+      projectMemory: ["AGENTS.md"],
+    });
+    raw = ui._debugRenderLinesForTests(90).join("\n");
+  });
+
+  assert.match(raw, /\x1b\[38;2;18;171;52m\[Context\]/);
+  assert.match(raw, /\x1b\[38;2;18;171;52m\[Runtime\]/);
+  assert.match(raw, /\x1b\[38;2;18;171;52m\[Theme\]/);
 }
 
 function runTranscriptScrollKeepsInputPinnedRegression() {
@@ -539,6 +566,7 @@ runResizeFullRedrawRegression();
 runOverViewportRedrawRegression();
 runInteractiveHostUsesNormalScreenRegression();
 runPreInteractivePanelsSurviveInteractiveRegression();
+runStartupSectionLabelsUseActiveThemeRegression();
 runTranscriptScrollKeepsInputPinnedRegression();
 runEditorStatusGapRegression();
 runEditorBusySpacingRegression();

@@ -455,7 +455,7 @@ function centerNearBlock(text, width, blockLeft, blockWidth) {
 function renderStartupSection(label, values, theme, width) {
   const bodyWidth = Math.max(1, width - 2);
   const body = (Array.isArray(values) ? values : [values]).map((value) => String(value ?? "").trim()).filter(Boolean);
-  const sectionColor = "\x1b[38;5;75m";
+  const sectionColor = theme.info || theme.accent || theme.primary || "";
   const lines = [`${sectionColor}[${label}]${reset}`];
   for (const value of body.length ? body : ["none"]) {
     lines.push(`  ${theme.muted}${truncate(value, bodyWidth)}${reset}`);
