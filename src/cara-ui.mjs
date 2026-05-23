@@ -1,5 +1,6 @@
 import { stdout as output } from "node:process";
 import { readFileSync } from "node:fs";
+import os from "node:os";
 import { renderMarkdown } from "./pi-markdown.mjs";
 import { renderAccountStatusBox, renderCodexUsageBox, renderProgressBox, renderRetryBlock, renderStatusBox } from "./terminal-blocks.mjs";
 import { runTerminalInputLoop } from "./terminal-input.mjs";
@@ -174,7 +175,7 @@ export function createCaraUi(options = {}) {
       const thinking = status.thinking ?? options.thinking ?? "medium";
       const themeName = status.terminalTheme ?? theme.name ?? "theme";
       line(`${theme.accent}✦${reset} ${bold}${theme.primary}Cara${reset}`);
-      line(`   ${theme.muted}${project}${reset}`);
+      line(`   ${theme.muted}${formatHomePath(project)}${reset}`);
       line(`   ${theme.info}${model}${reset} ${theme.muted}·${reset} ${theme.warning}${thinking}${reset} ${theme.muted}·${reset} ${theme.accent}${themeName}${reset}`);
       line("");
       line(`   ${theme.primary}/start${reset} ${theme.muted}to orient ·${reset} ${theme.accent}/themes${reset} ${theme.muted}to change the room ·${reset} ${theme.success}@file${reset} ${theme.muted}to bring context${reset}`);
@@ -485,6 +486,17 @@ function formatCount(value) {
 
 function formatCostValue(value) {
   return Number(value || 0).toFixed(4);
+}
+
+function formatHomePath(value) {
+  const text = String(value ?? "");
+  const home = os.homedir();
+  if (!home) return text;
+  if (text.toLowerCase() === home.toLowerCase()) return "~";
+  if (text.toLowerCase().startsWith(`${home.toLowerCase()}\\`) || text.toLowerCase().startsWith(`${home.toLowerCase()}/`)) {
+    return `~${text.slice(home.length)}`;
+  }
+  return text;
 }
 
 function formatSessionTime(value) {
