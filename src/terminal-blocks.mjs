@@ -1,3 +1,4 @@
+import os from "node:os";
 import { buildTerminalTheme } from "./terminal-theme.mjs";
 
 const bold = "\x1b[1m";
@@ -26,35 +27,72 @@ export function renderProgressBox(progress = {}, theme = fallbackTheme, terminal
 export function renderStatusBox(status = {}, theme = fallbackTheme, terminalColumns = 100) {
   const width = Math.max(64, Math.min(112, Number(terminalColumns || 100) - 1));
   const contentWidth = Math.max(24, width - 4);
-  const valueWidth = Math.max(16, contentWidth - 10);
+  const valueWidth = Math.max(16, contentWidth - 32);
   const rows = [
-    `${bold}${theme.primary}Cara status${reset} ${theme.muted}${status.sessionName ? status.sessionName : "live session"}${reset}`,
-    renderContextLine(status, theme),
+    `${bold}${theme.primary}>_ Cara status${reset} ${theme.muted}${status.sessionName ? status.sessionName : "live session"}${reset}`,
     "",
-    statusField("project", status.project, theme, valueWidth),
-    statusField("model", status.model, theme, valueWidth),
-    statusField("profile", `${status.profile ?? "auto"}  thinking ${status.thinking ?? "off"}`, theme, valueWidth),
-    statusField("chat", status.sessionId, theme, valueWidth),
-    statusField("file", status.sessionFile, theme, valueWidth),
-    statusField("sessions", status.sessions, theme, valueWidth),
+    alignedField("Model", status.model, theme, valueWidth),
+    alignedField("Directory", formatHomePath(status.project), theme, valueWidth),
+    alignedField("Profile", status.profile ?? "auto", theme, valueWidth),
+    alignedField("Thinking", status.thinking ?? "off", theme, valueWidth),
+    alignedField("Theme", status.terminalTheme ?? "default", theme, valueWidth),
+    alignedField("Session", status.sessionId, theme, valueWidth),
+    alignedField("Session file", formatHomePath(status.sessionFile), theme, valueWidth),
+    alignedField("Sessions dir", formatHomePath(status.sessions), theme, valueWidth),
+    "",
+    alignedField("Context", renderContextSummary(status, theme), theme, valueWidth),
+    alignedField("Tokens", renderTokenSummary(status.usage), theme, valueWidth),
+    alignedField("Cost", `$${Number(status.usage?.cost || 0).toFixed(4)}`, theme, valueWidth),
   ];
 
   if (status.projectMemory?.length) {
-    rows.push(statusField("memory", status.projectMemory.join(", "), theme, valueWidth));
+    rows.push(alignedField("Project memory", status.projectMemory.join(", "), theme, valueWidth));
   }
   if (status.customCommands?.length) {
-    rows.push(statusField("commands", status.customCommands.map((command) => `/${command.name}`).join(", "), theme, valueWidth));
+    rows.push(alignedField("Custom commands", status.customCommands.map((command) => `/${command.name}`).join(", "), theme, valueWidth));
   }
 
-  const border = `${theme.primary}+${"-".repeat(width - 2)}+${reset}`;
-  const divider = `${theme.primary}|${reset}${theme.muted}${"-".repeat(width - 2)}${reset}${theme.primary}|${reset}`;
-  return [
+  return renderBox(rows, theme, width, contentWidth);
+}
+
+export function renderCommandsBox(theme = fallbackTheme, terminalColumns = 100) {
+  const width = Math.max(64, Math.min(112, Number(terminalColumns || 100) - 1));
+  const contentWidth = Math.max(24, width - 4);
+  const commandWidth = 25;
+  const rows = [
+    `${bold}${theme.primary}>_ Slash commands${reset}`,
+    `${theme.muted}Type a command, or use Tab / arrow keys to complete suggestions.${reset}`,
     "",
-    border,
-    ...rows.flatMap((row) => row === "" ? [divider] : wrapStatusRow(row, contentWidth).map((line) => boxedStatusLine(line, contentWidth, theme))),
-    border,
+    commandRow("/commands", "show this list", theme, commandWidth),
+    commandRow("/start", "scan/orient to the project", theme, commandWidth),
+    commandRow("/status", "show model, directory, session, context, and usage", theme, commandWidth),
+    commandRow("/session", "show current chat file, messages, tokens, and cost", theme, commandWidth),
+    commandRow("/memory", "summarize what Cara memory knows", theme, commandWidth),
+    commandRow("/consolidate", "clean and update Cara memory layers", theme, commandWidth),
     "",
+    commandRow("/new", "fresh chat, no previous messages", theme, commandWidth),
+    commandRow("/reload", "reload Cara from disk and resume this chat", theme, commandWidth),
+    commandRow("/reload --soft", "reload commands, themes, prompt, and memory only", theme, commandWidth),
+    commandRow("/exit, /quit", "leave", theme, commandWidth),
+    "",
+    commandRow("/profile [name]", "show or set active profile: auto, elson, cara", theme, commandWidth),
+    commandRow("/thinking [level]", "cycle or set effort: off, minimal, low, medium, high, xhigh", theme, commandWidth),
+    commandRow("/themes [name]", "list or switch terminal themes", theme, commandWidth),
+    commandRow("/models <provider/model>", "switch model", theme, commandWidth),
+    "",
+    commandRow("/auth, /account", "show ChatGPT/Codex account and limits", theme, commandWidth),
+    commandRow("/login", "login with ChatGPT Plus/Pro via Pi auth", theme, commandWidth),
+    commandRow("/logout", "clear stored ChatGPT/Codex login", theme, commandWidth),
+    commandRow("/codexusage", "show current Codex quota usage", theme, commandWidth),
+    "",
+    commandRow("@file", "search and attach project files in prompts", theme, commandWidth),
+    commandRow("/<custom>", "run .cara/commands/<custom>.md", theme, commandWidth),
+    "",
+    commandRow("cara auth", "show account, plan, and Codex limits", theme, commandWidth),
+    commandRow("cara --update", "update this Cara install from GitHub", theme, commandWidth),
+    commandRow("cara -p \"...\"", "print one answer and exit", theme, commandWidth),
   ];
+  return renderBox(rows, theme, width, contentWidth);
 }
 
 export function renderAccountStatusBox(account = {}, theme = fallbackTheme, terminalColumns = 100) {
@@ -132,6 +170,42 @@ function statusField(label, value, theme = fallbackTheme, valueWidth = 80, value
   return `${theme.warning}${label.padEnd(8)}${reset} ${valueStyle}${truncatePlain(String(value ?? "none"), valueWidth)}${reset}`;
 }
 
+function alignedField(label, value, theme = fallbackTheme, valueWidth = 80) {
+  const labelText = `${String(label ?? "").padEnd(27)}:`;
+  return `  ${theme.warning}${labelText}${reset} ${truncateVisible(String(value ?? "none"), valueWidth)}`;
+}
+
+function commandRow(command, description, theme = fallbackTheme, commandWidth = 24) {
+  return `  ${theme.primary}${String(command ?? "").padEnd(commandWidth)}${reset} ${theme.muted}${description ?? ""}${reset}`;
+}
+
+function renderContextSummary(status = {}, theme = fallbackTheme) {
+  const usage = status.usage ?? {};
+  const context = status.contextUsage ?? {};
+  const percent = typeof context.percent === "number" && Number.isFinite(context.percent) ? clamp(context.percent, 0, 100) : undefined;
+  const used = percent ?? (usage.total ? 0 : 0);
+  const left = percent === undefined ? "unknown" : `${formatPercent(Math.max(0, 100 - used))} left`;
+  return `${contextBar(used, theme)} ${left}`;
+}
+
+function renderTokenSummary(usage = {}) {
+  const total = formatNumber(usage.total);
+  const input = formatNumber(usage.input);
+  const output = formatNumber(usage.output);
+  return `${total} total (${input} in / ${output} out)`;
+}
+
+function formatHomePath(value) {
+  const text = String(value ?? "");
+  const home = os.homedir();
+  if (!text || !home) return text || "none";
+  if (text.toLowerCase() === home.toLowerCase()) return "~";
+  if (text.toLowerCase().startsWith(`${home.toLowerCase()}\\`) || text.toLowerCase().startsWith(`${home.toLowerCase()}/`)) {
+    return `~${text.slice(home.length)}`;
+  }
+  return text;
+}
+
 function renderContextLine(status = {}, theme = fallbackTheme) {
   const usage = status.usage ?? {};
   const context = status.contextUsage ?? {};
@@ -153,7 +227,7 @@ function contextBar(percent, theme = fallbackTheme) {
 }
 
 function boxedStatusLine(text, contentWidth, theme = fallbackTheme) {
-  return `${theme.primary}|${reset} ${padDisplay(truncateVisible(text, contentWidth), contentWidth)} ${theme.primary}|${reset}`;
+  return `${theme.primary}│${reset} ${padDisplay(truncateVisible(text, contentWidth), contentWidth)} ${theme.primary}│${reset}`;
 }
 
 function wrapStatusRow(text, width) {
@@ -251,13 +325,14 @@ function padDisplay(text, width) {
 }
 
 function renderBox(rows, theme, width, contentWidth) {
-  const border = `${theme.primary}+${"-".repeat(width - 2)}+${reset}`;
-  const divider = `${theme.primary}|${reset}${theme.muted}${"-".repeat(width - 2)}${reset}${theme.primary}|${reset}`;
+  const top = `${theme.primary}╭${"─".repeat(width - 2)}╮${reset}`;
+  const bottom = `${theme.primary}╰${"─".repeat(width - 2)}╯${reset}`;
+  const divider = `${theme.primary}│${reset}${theme.muted}${"─".repeat(width - 2)}${reset}${theme.primary}│${reset}`;
   return [
     "",
-    border,
-    ...rows.flatMap((row) => row === "" ? [divider] : wrapStatusRow(row, contentWidth).map((line) => boxedStatusLine(line, contentWidth, theme))),
-    border,
+    top,
+    ...rows.flatMap((row) => row === "__divider" ? [divider] : row === "" ? [boxedStatusLine("", contentWidth, theme)] : wrapStatusRow(row, contentWidth).map((line) => boxedStatusLine(line, contentWidth, theme))),
+    bottom,
     "",
   ];
 }

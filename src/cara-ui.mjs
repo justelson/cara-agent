@@ -2,7 +2,7 @@ import { stdout as output } from "node:process";
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import { renderMarkdown } from "./pi-markdown.mjs";
-import { renderAccountStatusBox, renderCodexUsageBox, renderProgressBox, renderRetryBlock, renderStatusBox } from "./terminal-blocks.mjs";
+import { renderAccountStatusBox, renderCodexUsageBox, renderCommandsBox, renderProgressBox, renderRetryBlock, renderStatusBox } from "./terminal-blocks.mjs";
 import { runTerminalInputLoop } from "./terminal-input.mjs";
 import { applyTerminalTheme, buildTerminalTheme } from "./terminal-theme.mjs";
 
@@ -182,45 +182,7 @@ export function createCaraUi(options = {}) {
       line("");
     },
     commands() {
-      line(`
-${bold}Slash commands${reset}
-  /commands             show this list
-  cara auth             show account, plan, and Codex limits
-  cara account          same as cara auth
-  cara codexusage       show current Codex quota usage
-  cara login            login with ChatGPT Plus/Pro via Pi auth
-  cara logout           clear stored ChatGPT/Codex auth
-  cara --update         update this Cara install from GitHub
-  -p, --print "..."     print one answer and exit
-  --model <provider/model>
-                       choose model for startup or print
-  --profile <name>     auto, elson, cara
-  --theme <name>       choose terminal theme on startup
-  /start                ask the agent for the project starting point
-  /new                  fresh chat, no previous messages
-  /status               show project, model, and thinking
-  /profile              show active profile
-  /profile <name>       auto, elson, cara
-  /auth                 show account, plan, and Codex limits
-  /account              same as /auth
-  /codexusage           show current Codex quota usage
-  /login                login with ChatGPT Plus/Pro via Pi auth
-  /logout               clear stored ChatGPT/Codex login
-  /thinking             cycle thinking effort
-  /thinking <level>     off, minimal, low, medium, high, xhigh
-  /themes               list terminal themes
-  /themes <name>        switch theme for this chat
-  /models               open model picker
-  /models <provider/model>
-  @file                 search and attach project files in prompts
-  /session              show current chat file, messages, tokens, cost
-  /memory               summarize what Cara memory knows
-  /consolidate          clean and update Cara memory layers
-  /reload               reload Cara from disk and resume this chat
-  /reload --soft        reload commands, themes, prompt, memory only
-  /<custom>             run .cara/commands/<custom>.md
-  /exit                 leave
-  /quit                 leave`);
+      print(`${renderCommandsBox(theme, output.columns).join("\n")}\n`);
     },
     status(status) {
       print(`${renderStatusBox(status, theme, output.columns).join("\n")}\n`);
