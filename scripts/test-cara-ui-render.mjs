@@ -2,14 +2,14 @@
 import assert from "node:assert/strict";
 import { AssistantMessageLifecycle, createCaraUi, mergeAssistantTextDelta } from "../src/cara-ui.mjs";
 
-function assistantMessage(text = "") {
-  return { role: "assistant", content: text ? [{ type: "text", text }] : [] };
+function assistantMessage(text = "", id = "assistant-1") {
+  return { id, role: "assistant", content: text ? [{ type: "text", text }] : [] };
 }
 
-function updateEvent(text, delta) {
+function updateEvent(text, delta, id = "assistant-1") {
   return {
     type: "message_update",
-    message: assistantMessage(text),
+    message: assistantMessage(text, id),
     assistantMessageEvent: delta === undefined ? { type: "text_start" } : { type: "text_delta", delta },
   };
 }
@@ -113,8 +113,13 @@ function runUiEventCaptureRegression() {
     ui.event(updateEvent("Yep. Here’s the useful recap:\n\nYou asked where the original Cara project was."));
     ui.event({
       type: "message_end",
+      message: assistantMessage("Yep. Here’s the useful recap:"),
+    });
+    ui.event({
+      type: "message_end",
       message: assistantMessage("Yep. Here’s the useful recap:\n\nYou asked where the original Cara project was."),
     });
+    ui.event({ type: "agent_end" });
   });
 
   assert.equal(

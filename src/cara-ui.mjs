@@ -26,6 +26,9 @@ export function createCaraUi(options = {}) {
   let renderInput = () => {};
   let clearInput = () => {};
   let renderTimer = undefined;
+  let assistantCommitTimer = undefined;
+  let pendingAssistantCommit = null;
+  const committedAssistantIds = new Set();
   let suppressWorking = false;
   let activityLabel = "";
   let progressBox = null;
@@ -131,7 +134,33 @@ export function createCaraUi(options = {}) {
       return;
     }
     if (progressBox) progressBox.done = true;
-    print(`${formatAssistantContent(finalContent, theme).join("\n")}\n`);
+    scheduleAssistantCommit(message, finalContent);
+  }
+
+  function scheduleAssistantCommit(message, content) {
+    const id = assistantMessageIdentity(message);
+    if (id && committedAssistantIds.has(id)) return;
+    pendingAssistantCommit = { id, content };
+    if (assistantCommitTimer) clearTimeout(assistantCommitTimer);
+    assistantCommitTimer = setTimeout(() => {
+      assistantCommitTimer = undefined;
+      flushAssistantCommit();
+    }, 160);
+  }
+
+  function flushAssistantCommit() {
+    if (assistantCommitTimer) {
+      clearTimeout(assistantCommitTimer);
+      assistantCommitTimer = undefined;
+    }
+    const pending = pendingAssistantCommit;
+    pendingAssistantCommit = null;
+    if (!pending?.content) return;
+    if (pending.id) {
+      if (committedAssistantIds.has(pending.id)) return;
+      committedAssistantIds.add(pending.id);
+    }
+    print(`${formatAssistantContent(pending.content, theme).join("\n")}\n`);
   }
 
   function tool(event, state) {
@@ -275,7 +304,8 @@ export function createCaraUi(options = {}) {
         activityLabel = "thinking";
         flushInputRender();
       }
-      if (event.type === "turn_end") {
+      if (event.type === "turn_end" || event.type === "agent_end") {
+        flushAssistantCommit();
         isBusy = false;
         suppressWorking = false;
         activityLabel = "";
@@ -358,6 +388,7 @@ export function createCaraUi(options = {}) {
             clearTimeout(renderTimer);
             renderTimer = undefined;
           }
+          flushAssistantCommit();
           clearInput();
           inputActive = false;
           renderInput = () => {};
@@ -471,6 +502,11 @@ function formatSessionPath(value) {
     return `.${value.slice(cwd.length)}`;
   }
   return value;
+}
+
+function assistantMessageIdentity(message = {}) {
+  const value = message.id ?? message.messageId ?? message.entryId ?? message.uuid;
+  return value ? String(value) : "";
 }
 
 function formatAssistantContent(content, theme = fallbackTheme) {
