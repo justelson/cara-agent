@@ -3,6 +3,7 @@ dist/
 shims/
 .playwright-cli/
 .cara/
+.zyra/
 .coord/
 tmp/
 *.sqlite

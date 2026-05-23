@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const cli = path.join(root, "bin", "zyra.mjs");
+const cli = path.join(root, "src", "zyra.mjs");
 
 const result = spawnSync(process.execPath, [cli, ...process.argv.slice(2)], {
   stdio: "inherit",
@@ -12,8 +12,7 @@ const result = spawnSync(process.execPath, [cli, ...process.argv.slice(2)], {
   env: {
     ...process.env,
     ZYRA_CALLER_CWD: process.env.ZYRA_CALLER_CWD ?? process.cwd(),
-    CARA_CALLER_CWD: process.env.CARA_CALLER_CWD ?? process.cwd(),
-    ZYRA_LEGACY_CARA_COMMAND: "1",
+    CARA_CALLER_CWD: process.env.CARA_CALLER_CWD ?? process.env.ZYRA_CALLER_CWD ?? process.cwd(),
   },
 });
 

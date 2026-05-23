@@ -11,6 +11,7 @@ const fileIndexCache = new Map();
 const ignoredPathParts = new Set([
   ".git",
   "node_modules",
+  ".zyra/sessions",
   ".cara/sessions",
   "dist",
   "build",
@@ -196,6 +197,8 @@ function readProjectFilesWithRg(project) {
       "!.git/**",
       "-g",
       "!node_modules/**",
+      "-g",
+      "!.zyra/sessions/**",
       "-g",
       "!.cara/sessions/**",
       "-g",

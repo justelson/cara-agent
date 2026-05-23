@@ -69,7 +69,7 @@ export function errorPanel(error, theme = fallbackTheme) {
 
 export function memoryPanel(status, theme = fallbackTheme) {
   const lines = [""];
-  const overview = status.memoryOverview ?? ["What I know about Cara", "  Nothing stable yet."];
+  const overview = status.memoryOverview ?? ["What Zyra knows about Cara", "  Nothing stable yet."];
   const commands = status.customCommands ?? [];
   for (const memoryLine of overview) {
     if (!memoryLine) {
@@ -82,7 +82,7 @@ export function memoryPanel(status, theme = fallbackTheme) {
   }
   lines.push("", `${bold}Custom commands${reset}`);
   if (!commands.length) {
-    lines.push(`${theme.muted}  Add markdown commands in .cara/commands/*.md.${reset}`);
+    lines.push(`${theme.muted}  Add markdown commands in .zyra/commands/*.md.${reset}`);
   } else {
     for (const command of commands) {
       lines.push(`  ${theme.success}/${command.name}${reset} ${theme.muted}${command.description}${reset}`);

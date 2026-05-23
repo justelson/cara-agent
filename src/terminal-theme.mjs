@@ -3,14 +3,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const reset = "\x1b[0m";
-const terminalThemeMarker = Symbol.for("cara.terminalTheme");
+const terminalThemeMarker = Symbol.for("zyra.terminalTheme");
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const DEFAULT_TERMINAL_THEME = "rose-pine";
 
 const localBuiltInThemes = [
   {
     name: "rose-pine",
-    description: "Dark rose and pine palette. Cara's default room.",
+    description: "Dark rose and pine palette. Zyra's default room.",
     source: "built-in",
     colors: {
       muted: "#6e6a86",
@@ -82,7 +82,7 @@ const localBuiltInThemes = [
   },
   {
     name: "vivid",
-    description: "The brighter old Cara feel.",
+    description: "The brighter old Zyra feel.",
     source: "built-in",
     colors: {
       muted: 245,
@@ -152,7 +152,10 @@ export function listTerminalThemes(options = {}) {
   for (const theme of loadThemeDirectory(options.root && path.join(options.root, "themes"), "global")) {
     themes.set(theme.name, theme);
   }
-  for (const theme of loadThemeDirectory(options.project && path.join(options.project, ".cara", "themes"), "project")) {
+  for (const theme of loadThemeDirectory(options.project && path.join(options.project, ".cara", "themes"), "legacy-project")) {
+    themes.set(theme.name, theme);
+  }
+  for (const theme of loadThemeDirectory(options.project && path.join(options.project, ".zyra", "themes"), "project")) {
     themes.set(theme.name, theme);
   }
   return [...themes.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -226,7 +229,7 @@ function themeFromUiCatalog(theme) {
   return {
     name: theme.id,
     displayName: theme.name ?? theme.id,
-    description: theme.description ?? "Cara UI theme",
+    description: theme.description ?? "Zyra UI theme",
     source: "ui-app",
     colors: {
       muted: tokens.textSecondary,

@@ -29,7 +29,7 @@ export function renderStatusBox(status = {}, theme = fallbackTheme, terminalColu
   const contentWidth = Math.max(24, width - 4);
   const valueWidth = Math.max(16, contentWidth - 32);
   const rows = [
-    `${bold}${theme.primary}>_ Cara status${reset} ${theme.muted}${status.sessionName ? status.sessionName : "live session"}${reset}`,
+    `${bold}${theme.primary}>_ Zyra status${reset} ${theme.muted}${status.sessionName ? status.sessionName : "live session"}${reset}`,
     "",
     alignedField("Model", status.model, theme, valueWidth),
     alignedField("Directory", formatHomePath(status.project), theme, valueWidth),
@@ -67,11 +67,11 @@ export function renderCommandsBox(theme = fallbackTheme, terminalColumns = 100) 
     commandRow("/start", "scan/orient to the project", theme, commandWidth),
     commandRow("/status", "show model, directory, session, context, and usage", theme, commandWidth),
     commandRow("/session", "show current chat file, messages, tokens, and cost", theme, commandWidth),
-    commandRow("/memory", "summarize what Cara memory knows", theme, commandWidth),
-    commandRow("/consolidate", "clean and update Cara memory layers", theme, commandWidth),
+    commandRow("/memory", "summarize what Zyra knows about Cara", theme, commandWidth),
+    commandRow("/consolidate", "clean and update Zyra memory layers", theme, commandWidth),
     "",
     commandRow("/new", "fresh chat, no previous messages", theme, commandWidth),
-    commandRow("/reload", "reload Cara from disk and resume this chat", theme, commandWidth),
+    commandRow("/reload", "reload Zyra from disk and resume this chat", theme, commandWidth),
     commandRow("/reload --soft", "reload commands, themes, prompt, and memory only", theme, commandWidth),
     commandRow("/exit, /quit", "leave", theme, commandWidth),
     "",
@@ -86,11 +86,11 @@ export function renderCommandsBox(theme = fallbackTheme, terminalColumns = 100) 
     commandRow("/codexusage", "show current Codex quota usage", theme, commandWidth),
     "",
     commandRow("@file", "search and attach project files in prompts", theme, commandWidth),
-    commandRow("/<custom>", "run .cara/commands/<custom>.md", theme, commandWidth),
+    commandRow("/<custom>", "run .zyra/commands/<custom>.md", theme, commandWidth),
     "",
-    commandRow("cara auth", "show account, plan, and Codex limits", theme, commandWidth),
-    commandRow("cara --update", "update this Cara install from GitHub", theme, commandWidth),
-    commandRow("cara -p \"...\"", "print one answer and exit", theme, commandWidth),
+    commandRow("zyra auth", "show account, plan, and Codex limits", theme, commandWidth),
+    commandRow("zyra --update", "update this Zyra install from GitHub", theme, commandWidth),
+    commandRow("zyra -p \"...\"", "print one answer and exit", theme, commandWidth),
   ];
   return renderBox(rows, theme, width, contentWidth);
 }

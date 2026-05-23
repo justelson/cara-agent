@@ -2,7 +2,7 @@ param(
   [switch]$SkipNodeInstall,
   [string]$Repo = "justelson/cara-agent",
   [string]$Ref = "master",
-  [string]$InstallDir = "$env:LOCALAPPDATA\Cara",
+  [string]$InstallDir = "$env:LOCALAPPDATA\Zyra",
   [switch]$NoPathUpdate,
   [switch]$Update,
   [switch]$Yes
@@ -55,13 +55,13 @@ function Get-InitialRoot {
   return (Get-Location).Path
 }
 
-function Test-CaraRoot($Dir) {
+function Test-ZyraRoot($Dir) {
   $packagePath = Join-Path $Dir "package.json"
-  $cliPath = Join-Path $Dir "bin\cara.mjs"
+  $cliPath = Join-Path $Dir "bin\zyra.mjs"
   if (-not (Test-Path $packagePath) -or -not (Test-Path $cliPath)) { return $false }
   try {
     $package = Get-Content -Raw $packagePath | ConvertFrom-Json
-    return ($package.name -eq "cara" -and $package.bin.cara)
+    return ($package.name -eq "zyra" -and $package.bin.zyra)
   } catch {
     return $false
   }
@@ -109,7 +109,7 @@ function Install-PortableNode {
 
   $arch = Get-WindowsNodeArch
   $version = Get-Node22Version
-  $temp = Join-Path ([System.IO.Path]::GetTempPath()) ("cara-node-" + [System.Guid]::NewGuid().ToString("N"))
+  $temp = Join-Path ([System.IO.Path]::GetTempPath()) ("zyra-node-" + [System.Guid]::NewGuid().ToString("N"))
   $zip = Join-Path $temp "node.zip"
   $extract = Join-Path $temp "extract"
   $url = "https://nodejs.org/dist/$version/node-$version-win-$arch.zip"
@@ -142,7 +142,7 @@ function Ensure-Node {
     throw "Node.js is missing. Install Node.js 22 LTS or newer, then rerun install.ps1."
   }
 
-  Require-Confirmation "Node.js 22+ is missing. Install it for Cara now?" "Node.js is required. Install Node.js 22 LTS or rerun this installer and answer y."
+  Require-Confirmation "Node.js 22+ is missing. Install it for Zyra now?" "Node.js is required. Install Node.js 22 LTS or rerun this installer and answer y."
   Write-Host "Node.js not found. Installing Node.js LTS..."
 
   $installed = $false
@@ -176,20 +176,20 @@ function Ensure-Node-Version {
   $NodeVersion = [version]((node -p "process.versions.node") -replace "-.+$", "")
   if ($NodeVersion -lt [version]"22.19.0") {
     if (-not $SkipNodeInstall) {
-      Require-Confirmation "Node $NodeVersion is too old. Install portable Node.js 22 for Cara now?" "Cara needs Node.js 22.19.0 or newer. Install Node LTS or rerun this installer and answer y."
-      Write-Host "Node $NodeVersion is too old; installing portable Node.js 22 for Cara..."
+      Require-Confirmation "Node $NodeVersion is too old. Install portable Node.js 22 for Zyra now?" "Zyra needs Node.js 22.19.0 or newer. Install Node LTS or rerun this installer and answer y."
+      Write-Host "Node $NodeVersion is too old; installing portable Node.js 22 for Zyra..."
       Install-PortableNode
       $NodeVersion = [version]((node -p "process.versions.node") -replace "-.+$", "")
     }
   }
   if ($NodeVersion -lt [version]"22.19.0") {
-    throw "Cara needs Node.js 22.19.0 or newer. Current Node is $NodeVersion. Install Node LTS, then rerun install.ps1."
+    throw "Zyra needs Node.js 22.19.0 or newer. Current Node is $NodeVersion. Install Node LTS, then rerun install.ps1."
   }
 }
 
-function Download-CaraSource($TargetDir) {
-  $temp = Join-Path ([System.IO.Path]::GetTempPath()) ("cara-install-" + [System.Guid]::NewGuid().ToString("N"))
-  $zip = Join-Path $temp "cara.zip"
+function Download-ZyraSource($TargetDir) {
+  $temp = Join-Path ([System.IO.Path]::GetTempPath()) ("zyra-install-" + [System.Guid]::NewGuid().ToString("N"))
+  $zip = Join-Path $temp "zyra.zip"
   $preserve = Join-Path $temp "preserve"
   New-Item -ItemType Directory -Force -Path $temp | Out-Null
 
@@ -201,7 +201,7 @@ function Download-CaraSource($TargetDir) {
   $downloaded = $false
   foreach ($url in $urls) {
     try {
-      Write-Host "Downloading Cara from $url"
+      Write-Host "Downloading Zyra from $url"
       Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
       $downloaded = $true
       break
@@ -211,13 +211,13 @@ function Download-CaraSource($TargetDir) {
   }
 
   if (-not $downloaded) {
-    throw "Could not download Cara from $Repo ref $Ref. Check the repo/ref or network connection."
+    throw "Could not download Zyra from $Repo ref $Ref. Check the repo/ref or network connection."
   }
 
   $extract = Join-Path $temp "extract"
   Expand-Archive -Path $zip -DestinationPath $extract -Force
   $source = Get-ChildItem -Path $extract -Directory | Select-Object -First 1
-  if (-not $source) { throw "Downloaded Cara archive did not contain a source folder." }
+  if (-not $source) { throw "Downloaded Zyra archive did not contain a source folder." }
 
   if (Test-Path $TargetDir) {
     Get-ChildItem -Force $TargetDir | Where-Object { $_.Name -notin @(".deps", "node_modules") } | Remove-Item -Recurse -Force
@@ -245,34 +245,43 @@ function Ensure-PathEntry($Dir) {
   }
 }
 
-function Ensure-CaraCommand($Root) {
+function Ensure-ZyraCommands($Root) {
   $shimDir = Join-Path $Root "shims"
-  $shim = Join-Path $shimDir "cara.cmd"
+  $zyraShim = Join-Path $shimDir "zyra.cmd"
+  $caraShim = Join-Path $shimDir "cara.cmd"
   New-Item -ItemType Directory -Force -Path $shimDir | Out-Null
-  $content = @"
+  $zyraContent = @"
 @echo off
 setlocal
-set "CARA_ROOT=%~dp0.."
-call "%CARA_ROOT%\cara.cmd" %*
+set "ZYRA_ROOT=%~dp0.."
+call "%ZYRA_ROOT%\zyra.cmd" %*
 exit /b %ERRORLEVEL%
 "@
-  Set-Content -Path $shim -Value $content -Encoding ASCII
+  $caraContent = @"
+@echo off
+setlocal
+set "ZYRA_ROOT=%~dp0.."
+call "%ZYRA_ROOT%\cara.cmd" %*
+exit /b %ERRORLEVEL%
+"@
+  Set-Content -Path $zyraShim -Value $zyraContent -Encoding ASCII
+  Set-Content -Path $caraShim -Value $caraContent -Encoding ASCII
   return $shimDir
 }
 
 $Root = Get-InitialRoot
 if ($Update) {
   if (Test-Path (Join-Path $InstallDir ".git")) {
-    throw "Refusing to overwrite a git checkout at $InstallDir. Use git pull there, or install Cara to %LOCALAPPDATA%\Cara."
+    throw "Refusing to overwrite a git checkout at $InstallDir. Use git pull there, or install Zyra to %LOCALAPPDATA%\Zyra."
   }
-  Write-Host "Updating Cara in $InstallDir"
-  $Root = Download-CaraSource $InstallDir
-} elseif (-not (Test-CaraRoot $Root)) {
+  Write-Host "Updating Zyra in $InstallDir"
+  $Root = Download-ZyraSource $InstallDir
+} elseif (-not (Test-ZyraRoot $Root)) {
   try {
-    $Root = Download-CaraSource $InstallDir
+    $Root = Download-ZyraSource $InstallDir
   } catch {
-    if (Test-CaraRoot $InstallDir) {
-      Write-Host "Download failed; using existing Cara install at $InstallDir"
+    if (Test-ZyraRoot $InstallDir) {
+      Write-Host "Download failed; using existing Zyra install at $InstallDir"
       $Root = $InstallDir
     } else {
       throw
@@ -291,23 +300,25 @@ if (-not $NoPathUpdate) {
 
 $NeedsDependencies = -not (Test-Path (Join-Path $Root "node_modules\@earendil-works\pi-coding-agent"))
 if ($NeedsDependencies) {
-  Require-Confirmation "Cara package dependencies are missing. Install them now?" "Cara dependencies are required. Rerun this installer and answer y."
+  Require-Confirmation "Zyra package dependencies are missing. Install them now?" "Zyra dependencies are required. Rerun this installer and answer y."
 }
 
-Write-Host "Installing Cara dependencies..."
+Write-Host "Installing Zyra dependencies..."
 Invoke-PackageInstall $Root
 
-$CaraCommandDir = Ensure-CaraCommand $Root
+$ZyraCommandDir = Ensure-ZyraCommands $Root
 if (-not $NoPathUpdate) {
-  Ensure-PathEntry $CaraCommandDir
+  Ensure-PathEntry $ZyraCommandDir
 }
 
 Write-Host "Checking install..."
-& (Join-Path $CaraCommandDir "cara.cmd") doctor
+& (Join-Path $ZyraCommandDir "zyra.cmd") doctor
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""
-Write-Host "Cara is installed. Try:"
-Write-Host "  cara login"
-Write-Host "  cara auth"
-Write-Host "  cara"
+Write-Host "Zyra is installed. Try:"
+Write-Host "  zyra login"
+Write-Host "  zyra auth"
+Write-Host "  zyra"
+Write-Host ""
+Write-Host "Legacy handoff: cara still works as an alias for now."

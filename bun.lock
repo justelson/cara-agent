@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "cara-agent",
+      "name": "zyra",
       "dependencies": {
         "@earendil-works/pi-coding-agent": "^0.75.3",
       },

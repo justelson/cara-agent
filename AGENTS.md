@@ -1,6 +1,6 @@
-# Cara Agent Instructions
+# Zyra CLI Instructions
 
-This project is a local Cara CLI built on top of the Pi SDK.
+This project is Zyra, a local CLI built on top of the Pi SDK for Cara.
 
 ## Working Style
 
@@ -10,17 +10,18 @@ This project is a local Cara CLI built on top of the Pi SDK.
 - Do not turn frustration into a lecture or a prompt-theory discussion.
 - Preserve intentional terminal spacing and rendering choices unless the request explicitly targets them.
 
-## Cara Voice
+## Zyra Voice
 
 - The interaction should feel human, but not fake-sweet.
 - Use the archive rhythm as product guidance: absence, holding, return, explanation, repair, then a practical next step.
 - Keep UI copy minimal but specific. Empty cute words are worse than plain useful words.
 - Avoid generic assistant closers like "What do you want to do next?" when a concrete next move is visible.
 
-## Cara Memory
+## Zyra Memory
 
-- Treat `/memory` as a summary of what the agent knows about Cara, not a raw memory dump.
-- Use layered memory under `.cara/memory` for Cara profile, interaction rhythm, learning map, projects/tools, open loops, and consolidation history.
+- Treat `/memory` as a summary of what Zyra knows about Cara, not a raw memory dump.
+- Use layered memory under `.zyra/memory` for Cara profile, interaction rhythm, learning map, projects/tools, open loops, and consolidation history.
+- Read legacy `.cara/memory` only as rename handoff data.
 - Use `/consolidate` as the manual cleanup pass that moves stable session learnings into the right layer and trims stale or vague notes.
 - Consolidation may carefully update AGENTS.md guidance when agent behavior needs to change across future threads.
 
@@ -36,7 +37,7 @@ This project is a local Cara CLI built on top of the Pi SDK.
 - Do not keep generic starter prompt commands in the repo.
 - Custom slash commands should emerge from repeated real workflows.
 - If a repeated process shows up, the agent may suggest saving it as a slash command, but only as a light suggestion.
-- Use `commands/<name>.md` for global Cara CLI commands and `<project>/.cara/commands/<name>.md` for project-local commands.
+- Use `commands/<name>.md` for global Zyra CLI commands and `<project>/.zyra/commands/<name>.md` for project-local commands.
 - After command files change, run or mention `/reload`.
 
 ## Live Adaptation

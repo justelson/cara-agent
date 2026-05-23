@@ -38,18 +38,18 @@ if ! has_command node; then
   exit 1
 fi
 
-node -e "const v=process.versions.node.split('.').map(Number); const ok=v[0]>22||(v[0]===22&&(v[1]>19||(v[1]===19&&v[2]>=0))); if(!ok){console.error('Cara needs Node.js 22.19.0 or newer. Current Node is '+process.versions.node); process.exit(1)}"
+node -e "const v=process.versions.node.split('.').map(Number); const ok=v[0]>22||(v[0]===22&&(v[1]>19||(v[1]===19&&v[2]>=0))); if(!ok){console.error('Zyra needs Node.js 22.19.0 or newer. Current Node is '+process.versions.node); process.exit(1)}"
 
-echo "Installing Cara dependencies..."
+echo "Installing Zyra dependencies..."
 cd "$ROOT"
 if has_command bun; then
   bun install
-  echo "Linking Cara CLI globally..."
+  echo "Linking Zyra CLI globally..."
   bun link
 elif has_command npm; then
   echo "Bun not found. Falling back to npm."
   npm install
-  echo "Linking Cara CLI globally..."
+  echo "Linking Zyra CLI globally..."
   npm link
 else
   echo "Bun/npm is missing. Install Bun for package-manager tasks, or npm as a fallback."
@@ -57,7 +57,8 @@ else
 fi
 
 echo "Checking install..."
-cara doctor
+zyra doctor
 
 echo ""
-echo "Cara is installed. Run: cara"
+echo "Zyra is installed. Run: zyra"
+echo "Legacy handoff: cara still works as an alias for now."

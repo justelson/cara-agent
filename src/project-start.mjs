@@ -32,6 +32,6 @@ Rules:
 - Use "we", not "I".
 - Keep the whole thing under 12 lines no matter how large the codebase is.
 - If the codebase is large, bucket more files per line, do not add more lines.
-- Do not make this about Cara's Agent unless the current project actually is Cara's Agent.
+- Do not make this about Zyra unless the current project actually is Zyra.
 - Do not write a beginner lesson. Write like the person is here to fix, add, change, build, or understand something.`;
 }

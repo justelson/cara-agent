@@ -1,4 +1,4 @@
-import { listCaraThemes, listCustomCommands } from "./cara-sdk.mjs";
+import { listCustomCommands, listZyraThemes } from "./zyra-sdk.mjs";
 import { applyFileMentionSuggestion, getFileMentionSuggestions } from "./file-mentions.mjs";
 
 const COMMANDS = [
@@ -11,14 +11,14 @@ const COMMANDS = [
   { value: "/themes", label: "/themes", description: "pick a theme", kind: "command", submitOnEnter: false },
   { value: "/models", label: "/models", description: "open model picker", kind: "command" },
   { value: "/session", label: "/session", description: "current chat info", kind: "command", submitOnEnter: true },
-  { value: "/memory", label: "/memory", description: "summarize what Cara memory knows", kind: "command", submitOnEnter: true },
+  { value: "/memory", label: "/memory", description: "summarize what Zyra knows about Cara", kind: "command", submitOnEnter: true },
   { value: "/auth", label: "/auth", description: "account, plan, and Codex limits", kind: "command", submitOnEnter: true },
   { value: "/account", label: "/account", description: "same as /auth", kind: "command", submitOnEnter: true },
   { value: "/codexusage", label: "/codexusage", description: "show Codex quota usage", kind: "command", submitOnEnter: true },
   { value: "/login", label: "/login", description: "login with ChatGPT/Codex", kind: "command", submitOnEnter: true },
   { value: "/logout", label: "/logout", description: "clear ChatGPT/Codex login", kind: "command", submitOnEnter: true },
-  { value: "/consolidate", label: "/consolidate", description: "clean and update Cara memory layers", kind: "command", submitOnEnter: true },
-  { value: "/reload", label: "/reload", description: "reload Cara from disk and resume", kind: "command", submitOnEnter: true },
+  { value: "/consolidate", label: "/consolidate", description: "clean and update Zyra memory layers", kind: "command", submitOnEnter: true },
+  { value: "/reload", label: "/reload", description: "reload Zyra from disk and resume", kind: "command", submitOnEnter: true },
   { value: "/exit", label: "/exit", description: "leave", kind: "command", submitOnEnter: true },
   { value: "/quit", label: "/quit", description: "leave", kind: "command", submitOnEnter: true },
 ];
@@ -60,7 +60,7 @@ export function getSlashSuggestions(runtime, text) {
   if (query.startsWith("/themes ") || query.startsWith("/theme ")) {
     const command = query.startsWith("/theme ") ? "/theme " : "/themes ";
     const prefix = query.slice(command.length);
-    return listCaraThemes(runtime)
+    return listZyraThemes(runtime)
       .filter((theme) => `${theme.name} ${theme.displayName ?? ""} ${theme.description ?? ""}`.toLowerCase().includes(prefix))
       .map((theme) => ({
         value: theme.name,

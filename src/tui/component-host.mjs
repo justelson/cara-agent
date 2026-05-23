@@ -16,7 +16,7 @@ import {
 
 const renderDebounceMs = 16;
 
-export class CaraComponentHost {
+export class ZyraComponentHost {
   constructor(options = {}) {
     this.output = options.output ?? defaultOutput;
     this.components = [];
@@ -314,6 +314,8 @@ export class StaticLinesComponent {
     return this.lines;
   }
 }
+
+export const CaraComponentHost = ZyraComponentHost;
 
 function safeRender(component, width) {
   const lines = component.render?.(width);

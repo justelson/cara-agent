@@ -9,7 +9,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
 const version = pkg.version ?? "0.0.0";
 const dist = path.join(root, "dist");
-const zipName = `cara-v${version}.zip`;
+const zipName = `zyra-v${version}.zip`;
 const zipPath = path.join(dist, zipName);
 const checksumPath = path.join(dist, "checksums.txt");
 

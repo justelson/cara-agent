@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { AssistantMessageLifecycle, createCaraUi, mergeAssistantTextDelta } from "../src/cara-ui.mjs";
+import { AssistantMessageLifecycle, createZyraUi, mergeAssistantTextDelta } from "../src/zyra-ui.mjs";
 import { renderStatusLine } from "../src/status-line.mjs";
-import { CaraComponentHost, EditorComponent, StaticLinesComponent } from "../src/tui/cara-tui.mjs";
+import { ZyraComponentHost, EditorComponent, StaticLinesComponent } from "../src/tui/zyra-tui.mjs";
 import { stripAnsi } from "../src/tui/render-utils.mjs";
 
 function assistantMessage(text = "", id = "assistant-1") {
@@ -46,8 +46,8 @@ function runFullSnapshotRegression() {
 
   const snapshots = [
     "Yep. Here’s the useful recap:",
-    "Yep. Here’s the useful recap:\n\nYou asked where the original Cara project was.",
-    "Yep. Here’s the useful recap:\n\nYou asked where the original Cara project was. I found:",
+    "Yep. Here’s the useful recap:\n\nYou asked where the original Zyra project was.",
+    "Yep. Here’s the useful recap:\n\nYou asked where the original Zyra project was. I found:",
   ];
 
   for (const snapshot of snapshots) {
@@ -135,11 +135,11 @@ function captureStdout(fn) {
 
 function runUiEventCaptureRegression() {
   const captured = captureStdout((getCaptured) => {
-    const ui = createCaraUi();
+    const ui = createZyraUi();
     ui.event({ type: "message_start", message: assistantMessage() });
     ui.event(updateEvent("Yep. Here’s the useful recap:"));
     ui.event(updateEvent("Yep. Here’s the useful recap:"));
-    ui.event(updateEvent("Yep. Here’s the useful recap:\n\nYou asked where the original Cara project was."));
+    ui.event(updateEvent("Yep. Here’s the useful recap:\n\nYou asked where the original Zyra project was."));
     ui.event({
       type: "message_end",
       message: assistantMessage("Yep. Here’s the useful recap:"),
@@ -147,7 +147,7 @@ function runUiEventCaptureRegression() {
     assert.equal(getCaptured().includes("Yep"), false, "assistant text must not print before the turn boundary");
     ui.event({
       type: "message_end",
-      message: assistantMessage("Yep. Here’s the useful recap:\n\nYou asked where the original Cara project was."),
+      message: assistantMessage("Yep. Here’s the useful recap:\n\nYou asked where the original Zyra project was."),
     });
     assert.equal(getCaptured().includes("Yep"), false, "later message_end snapshots must still wait for agent_end/turn_end");
     ui.event({ type: "agent_end" });
@@ -159,12 +159,12 @@ function runUiEventCaptureRegression() {
     1,
     `UI event path must commit the assistant answer once, not redraw snapshots into transcript. Captured:\n${captured}`,
   );
-  assert.match(captured, /You asked where the original Cara project was/);
+  assert.match(captured, /You asked where the original Zyra project was/);
 }
 
 function runToolOutputStyleRegression() {
   const captured = captureStdout(() => {
-    const ui = createCaraUi();
+    const ui = createZyraUi();
     ui.event({
       type: "tool_execution_end",
       toolName: "bash",
@@ -183,7 +183,7 @@ function runToolOutputStyleRegression() {
 }
 
 function runInteractiveAssistantComponentRegression() {
-  const ui = createCaraUi();
+  const ui = createZyraUi();
   ui._debugBeginInteractiveForTests();
   ui.event({ type: "turn_start" });
   ui.event({ type: "message_start", message: assistantMessage() });
@@ -202,7 +202,7 @@ function runInteractiveAssistantComponentRegression() {
 }
 
 function runInteractiveNoTurnEndDuplicateRegression() {
-  const ui = createCaraUi();
+  const ui = createZyraUi();
   ui._debugBeginInteractiveForTests();
   ui.event({ type: "turn_start" });
   ui.event({ type: "message_start", message: assistantMessage() });
@@ -218,7 +218,7 @@ function runInteractiveNoTurnEndDuplicateRegression() {
 }
 
 function runInteractiveToolComponentRegression() {
-  const ui = createCaraUi();
+  const ui = createZyraUi();
   ui._debugBeginInteractiveForTests();
   ui.event({
     type: "tool_execution_start",
@@ -247,7 +247,7 @@ function runInteractiveToolComponentRegression() {
 }
 
 function runAssistantAndToolInterleaveRegression() {
-  const ui = createCaraUi();
+  const ui = createZyraUi();
   ui._debugBeginInteractiveForTests();
   ui.event({ type: "turn_start" });
   ui.event({ type: "message_start", message: assistantMessage() });
@@ -256,15 +256,15 @@ function runAssistantAndToolInterleaveRegression() {
     type: "tool_execution_start",
     toolName: "read",
     toolCallId: "tool-read",
-    args: { path: "src/cara-ui.mjs" },
+    args: { path: "src/zyra-ui.mjs" },
   });
   ui.event(updateEvent("Reading files...\n\nFound it."));
   ui.event({
     type: "tool_execution_end",
     toolName: "read",
     toolCallId: "tool-read",
-    args: { path: "src/cara-ui.mjs" },
-    result: { content: [{ type: "text", text: "export function createCaraUi" }] },
+    args: { path: "src/zyra-ui.mjs" },
+    result: { content: [{ type: "text", text: "export function createZyraUi" }] },
   });
   const plain = ui._debugRenderLinesForTests(70).map(stripAnsi).join("\n");
   assert.equal((plain.match(/Reading files/g) ?? []).length, 1, "assistant stream should not become raw interleaved blocks");
@@ -272,7 +272,7 @@ function runAssistantAndToolInterleaveRegression() {
 }
 
 function runWidthFitRegression() {
-  const ui = createCaraUi();
+  const ui = createZyraUi();
   ui._debugBeginInteractiveForTests();
   ui.event({ type: "message_start", message: assistantMessage() });
   ui.event(updateEvent("A very long assistant line that should wrap or clamp without exceeding the requested render width."));
@@ -280,7 +280,7 @@ function runWidthFitRegression() {
     type: "tool_execution_start",
     toolName: "bash",
     toolCallId: "tool-width",
-    args: { command: "node scripts/test-cara-ui-render.mjs --with-a-very-long-argument-that-needs-clamping" },
+    args: { command: "node scripts/test-zyra-ui-render.mjs --with-a-very-long-argument-that-needs-clamping" },
   });
   for (const width of [32, 56, 100]) {
     const lines = ui._debugRenderLinesForTests(width);
@@ -293,7 +293,7 @@ function runWidthFitRegression() {
 }
 
 function runStaticPanelsThroughHostRegression() {
-  const ui = createCaraUi();
+  const ui = createZyraUi();
   ui._debugBeginInteractiveForTests();
   ui.status({
     model: "openai-codex/gpt-5.5",
@@ -305,7 +305,7 @@ function runStaticPanelsThroughHostRegression() {
   });
   ui.commands();
   const plain = ui._debugRenderLinesForTests(90).map(stripAnsi).join("\n");
-  assert.match(plain, /Cara status/);
+  assert.match(plain, /Zyra status/);
   assert.match(plain, /Slash commands/);
 }
 
@@ -330,7 +330,7 @@ function runResizeFullRedrawRegression() {
       writes.push("[clearScreenDown]");
     },
   };
-  const host = new CaraComponentHost({ output: fakeOutput, autoRender: true });
+  const host = new ZyraComponentHost({ output: fakeOutput, autoRender: true });
   host.setInteractive(true);
   host.append(new StaticLinesComponent("line", ["prompt-with-a-long-tail-that-wraps-at-narrow-width"]));
   host.invalidate({ force: true });
@@ -360,7 +360,7 @@ function runOverViewportRedrawRegression() {
     on() {},
     off() {},
   };
-  const host = new CaraComponentHost({ output: fakeOutput, autoRender: true });
+  const host = new ZyraComponentHost({ output: fakeOutput, autoRender: true });
   host.setInteractive(true);
   const component = host.append(new StaticLinesComponent("long", Array.from({ length: 40 }, (_, index) => `line ${index + 1}`)));
   host.invalidate({ force: true });
@@ -390,7 +390,7 @@ function runInteractiveHostUsesNormalScreenRegression() {
     on() {},
     off() {},
   };
-  const host = new CaraComponentHost({ output: fakeOutput, autoRender: true });
+  const host = new ZyraComponentHost({ output: fakeOutput, autoRender: true });
   host.setInteractive(true);
   host.append(new StaticLinesComponent("stream", ["Sure.", "The day arrives without asking,"]));
   host.invalidate({ force: true });
@@ -407,7 +407,7 @@ function runPreInteractivePanelsSurviveInteractiveRegression() {
   let plain = "";
   let raw = "";
   captureStdout(() => {
-    const ui = createCaraUi();
+    const ui = createZyraUi();
     ui.banner({
       project: "C:\\Users\\elson\\my_coding_play\\playground\\Cara's agent",
       model: "openai-codex/gpt-5.5",
@@ -445,7 +445,7 @@ function runTranscriptScrollKeepsInputPinnedRegression() {
     on() {},
     off() {},
   };
-  const host = new CaraComponentHost({ output: fakeOutput, autoRender: true });
+  const host = new ZyraComponentHost({ output: fakeOutput, autoRender: true });
   host.setInteractive(true);
   host.append(new StaticLinesComponent("content", Array.from({ length: 30 }, (_, index) => `line ${index + 1}`)));
   host.setInputComponent(new StaticLinesComponent("input", ["> input", "", "status"]));
@@ -543,4 +543,4 @@ runTranscriptScrollKeepsInputPinnedRegression();
 runEditorStatusGapRegression();
 runEditorBusySpacingRegression();
 runStatusLineColorRegression();
-console.log("cara-ui render regression: ok");
+console.log("zyra-ui render regression: ok");

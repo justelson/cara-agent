@@ -1,15 +1,16 @@
 {
-  "name": "cara",
-  "version": "0.1.14",
+  "name": "zyra",
+  "version": "0.2.0",
   "private": true,
-  "description": "Local Cara coding assistant CLI.",
+  "description": "Local Zyra coding assistant CLI for Cara.",
   "type": "module",
   "scripts": {
+    "zyra": "node bin/zyra.mjs",
     "cara": "node bin/cara.mjs",
-    "inspect": "node bin/cara.mjs inspect",
-    "ask": "node bin/cara.mjs ask",
-    "doctor": "node bin/cara.mjs doctor",
-    "check": "node --check src/cara-ui.mjs && node --check src/terminal-input.mjs && node --check src/cara.mjs && node --check src/tui/cara-tui.mjs && node --check src/tui/component-host.mjs && node --check src/tui/render-utils.mjs && node --check src/tui/components/editor.mjs && node --check src/tui/components/message-components.mjs && node --check src/tui/components/static-panels.mjs && node scripts/test-cara-ui-render.mjs && node bin/cara.mjs doctor",
+    "inspect": "node bin/zyra.mjs inspect",
+    "ask": "node bin/zyra.mjs ask",
+    "doctor": "node bin/zyra.mjs doctor",
+    "check": "node --check src/zyra-ui.mjs && node --check src/terminal-input.mjs && node --check src/zyra.mjs && node --check src/tui/zyra-tui.mjs && node --check src/tui/component-host.mjs && node --check src/tui/render-utils.mjs && node --check src/tui/components/editor.mjs && node --check src/tui/components/message-components.mjs && node --check src/tui/components/static-panels.mjs && node scripts/test-zyra-ui-render.mjs && node bin/zyra.mjs doctor",
     "release:zip": "node scripts/build-release.mjs",
     "install:global": "bun link",
     "ui:dev": "bun run --cwd apps/cara-ui dev",
@@ -17,12 +18,15 @@
     "ui:typecheck": "bun run --cwd apps/cara-ui typecheck"
   },
   "bin": {
+    "zyra": "bin/zyra.mjs",
     "cara": "bin/cara.mjs"
   },
   "files": [
     "AGENTS.md",
     "README.md",
     "bin",
+    "cara.cmd",
+    "cara.ps1",
     "commands",
     "install.cmd",
     "install.ps1",
@@ -30,7 +34,9 @@
     "scripts",
     "apps/cara-ui",
     "prompts",
-    "src"
+    "src",
+    "zyra.cmd",
+    "zyra.ps1"
   ],
   "license": "UNLICENSED",
   "engines": {
