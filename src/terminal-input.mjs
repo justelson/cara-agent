@@ -707,23 +707,14 @@ function renderEditorLines({ prompt, text = "", placeholder = "message..." }, wi
   const rowWidth = Math.max(1, width - promptWidth);
 
   if (!text) {
-    const placeholderLine = `${prompt}${fakeCursor}${theme.muted}${placeholder}${reset}`;
-    return [renderEditorRule(width, theme), padToVisibleWidth(placeholderLine, width), renderEditorRule(width, theme)];
+    return [`${prompt}${fakeCursor}${theme.muted}${placeholder}${reset}`];
   }
 
   const rows = wrapEditorInput(text, rowWidth);
-  return [
-    renderEditorRule(width, theme),
-    ...rows.map((row, index) => {
-      const prefix = index === 0 ? prompt : " ".repeat(promptWidth);
-      return padToVisibleWidth(`${prefix}${row}`, width);
-    }),
-    renderEditorRule(width, theme),
-  ];
-}
-
-function renderEditorRule(width, theme = buildTerminalTheme()) {
-  return `${theme.editorBorder}${"-".repeat(width)}${reset}`;
+  return rows.map((row, index) => {
+    const prefix = index === 0 ? prompt : " ".repeat(promptWidth);
+    return `${prefix}${row}`;
+  });
 }
 
 function visibleWidth(text) {
