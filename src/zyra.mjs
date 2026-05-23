@@ -405,12 +405,8 @@ async function handleSlash(runtime, ui, input) {
     return true;
   }
   if (command === "/auth" || command === "/account") {
-    ui.beginProgress("Account status");
-    try {
-      ui.account(await buildZyraAuthAccountStatus(arg || "openai-codex"));
-    } finally {
-      ui.endProgress();
-    }
+    ui.info("Checking auth...");
+    ui.account(await buildZyraAuthAccountStatus(arg || "openai-codex"));
     return true;
   }
   if (command === "/codexusage" || command === "/usage") {

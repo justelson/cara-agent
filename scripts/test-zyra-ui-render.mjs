@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { AssistantMessageLifecycle, createZyraUi, mergeAssistantTextDelta } from "../src/zyra-ui.mjs";
 import { renderStatusLine } from "../src/status-line.mjs";
+import { renderAccountStatusBox, renderCodexUsageBox, renderStatusBox } from "../src/terminal-blocks.mjs";
 import { ZyraComponentHost, EditorComponent, StaticLinesComponent } from "../src/tui/zyra-tui.mjs";
 import { stripAnsi } from "../src/tui/render-utils.mjs";
 
@@ -548,6 +549,29 @@ function runStatusLineColorRegression() {
   assert.match(line, /\x1b\[38;5;82m\$0\.300/);
 }
 
+function runSystemPanelWidthRegression() {
+  const widthOf = (lines) => stripAnsi(lines.find((line) => stripAnsi(line).trim()) ?? "").length;
+  const account = {
+    provider: "openai-codex",
+    status: { configured: true, source: "test" },
+    email: "elson@example.com",
+    plan: "plus",
+    updatedAt: "2026-05-24T00:00:00.000Z",
+  };
+  const usage = {
+    source: "test",
+    plan: "plus",
+    account: "elson@example.com",
+    updatedAt: "2026-05-24T00:00:00.000Z",
+  };
+
+  for (const terminalColumns of [80, 120]) {
+    const statusWidth = widthOf(renderStatusBox({}, undefined, terminalColumns));
+    assert.equal(widthOf(renderAccountStatusBox(account, undefined, terminalColumns)), statusWidth);
+    assert.equal(widthOf(renderCodexUsageBox(usage, undefined, terminalColumns)), statusWidth);
+  }
+}
+
 runDeltaStreamingRegression();
 runFullSnapshotRegression();
 runRepeatedSnapshotRegression();
@@ -571,4 +595,5 @@ runTranscriptScrollKeepsInputPinnedRegression();
 runEditorStatusGapRegression();
 runEditorBusySpacingRegression();
 runStatusLineColorRegression();
+runSystemPanelWidthRegression();
 console.log("zyra-ui render regression: ok");

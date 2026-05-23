@@ -4,6 +4,12 @@ import { buildTerminalTheme } from "./terminal-theme.mjs";
 const bold = "\x1b[1m";
 const reset = "\x1b[0m";
 const fallbackTheme = buildTerminalTheme();
+const standardPanelMinWidth = 64;
+const standardPanelMaxWidth = 112;
+
+function standardPanelWidth(terminalColumns = 100) {
+  return Math.max(standardPanelMinWidth, Math.min(standardPanelMaxWidth, Number(terminalColumns || 100) - 1));
+}
 
 export function renderProgressBox(progress = {}, theme = fallbackTheme, terminalColumns = 100) {
   const width = Math.max(56, Math.min(92, Number(terminalColumns || 100) - 1));
@@ -25,7 +31,7 @@ export function renderProgressBox(progress = {}, theme = fallbackTheme, terminal
 }
 
 export function renderStatusBox(status = {}, theme = fallbackTheme, terminalColumns = 100) {
-  const width = Math.max(64, Math.min(112, Number(terminalColumns || 100) - 1));
+  const width = standardPanelWidth(terminalColumns);
   const contentWidth = Math.max(24, width - 4);
   const valueWidth = Math.max(16, contentWidth - 32);
   const rows = [
@@ -56,7 +62,7 @@ export function renderStatusBox(status = {}, theme = fallbackTheme, terminalColu
 }
 
 export function renderCommandsBox(theme = fallbackTheme, terminalColumns = 100) {
-  const width = Math.max(64, Math.min(112, Number(terminalColumns || 100) - 1));
+  const width = standardPanelWidth(terminalColumns);
   const contentWidth = Math.max(24, width - 4);
   const commandWidth = 25;
   const rows = [
@@ -96,7 +102,7 @@ export function renderCommandsBox(theme = fallbackTheme, terminalColumns = 100) 
 }
 
 export function renderAccountStatusBox(account = {}, theme = fallbackTheme, terminalColumns = 100) {
-  const width = Math.max(68, Math.min(116, Number(terminalColumns || 100) - 1));
+  const width = standardPanelWidth(terminalColumns);
   const contentWidth = Math.max(24, width - 4);
   const valueWidth = Math.max(16, contentWidth - 10);
   const status = account.status?.configured ? "logged in" : "not logged in";
@@ -126,7 +132,7 @@ export function renderAccountStatusBox(account = {}, theme = fallbackTheme, term
 }
 
 export function renderCodexUsageBox(stats = {}, theme = fallbackTheme, terminalColumns = 100) {
-  const width = Math.max(68, Math.min(116, Number(terminalColumns || 100) - 1));
+  const width = standardPanelWidth(terminalColumns);
   const contentWidth = Math.max(24, width - 4);
   const valueWidth = Math.max(16, contentWidth - 10);
   const rows = [
