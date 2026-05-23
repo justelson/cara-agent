@@ -3,6 +3,7 @@ import { stdout as defaultOutput } from "node:process";
 import {
   countPhysicalRows,
   hideCursor,
+  physicalRowsForLine,
   renderLinesWithinWidth,
   showCursor,
   syncEnd,
@@ -123,7 +124,8 @@ export class CaraComponentHost {
     this.previousWidth = width;
     this.previousHeight = height;
 
-    const lines = this.renderLines(width);
+    const allLines = this.renderLines(width);
+    const lines = this.interactive ? visibleViewportLines(allLines, width, height) : allLines;
     const output = lines.join("\n");
 
     if (!this.interactive) {
@@ -158,7 +160,8 @@ export class CaraComponentHost {
   clearRendered(width = this.width()) {
     if (this.renderedPhysicalRows <= 0 && this.renderedLines.length === 0) return;
     const rowsAtCurrentWidth = countPhysicalRows(this.renderedLines, width);
-    const rowsToMove = Math.max(this.renderedPhysicalRows, rowsAtCurrentWidth) - 1;
+    const maxOwnedRows = Math.max(1, this.height());
+    const rowsToMove = Math.min(Math.max(this.renderedPhysicalRows, rowsAtCurrentWidth), maxOwnedRows) - 1;
     if (rowsToMove > 0) readline.moveCursor(this.output, 0, -rowsToMove);
     readline.cursorTo(this.output, 0);
     readline.clearScreenDown(this.output);
@@ -215,4 +218,21 @@ export class StaticLinesComponent {
 function safeRender(component, width) {
   const lines = component.render?.(width);
   return Array.isArray(lines) ? lines : [];
+}
+
+function visibleViewportLines(lines, width, height) {
+  const maxRows = Math.max(1, Number(height) || 1);
+  const kept = [];
+  let rows = 0;
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    const lineRows = physicalRowsForLine(line, width);
+    if (kept.length > 0 && rows + lineRows > maxRows) break;
+    kept.unshift(line);
+    rows += lineRows;
+    if (rows >= maxRows) break;
+  }
+
+  return kept;
 }

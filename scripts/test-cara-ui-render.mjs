@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { AssistantMessageLifecycle, createCaraUi, mergeAssistantTextDelta } from "../src/cara-ui.mjs";
 import { CaraComponentHost, StaticLinesComponent } from "../src/tui/cara-tui.mjs";
-import { stripAnsi } from "../src/tui/render-utils.mjs";
+import { countPhysicalRows, stripAnsi } from "../src/tui/render-utils.mjs";
 
 function assistantMessage(text = "", id = "assistant-1") {
   return { id, role: "assistant", content: text ? [{ type: "text", text }] : [] };
@@ -321,6 +321,43 @@ function runResizeFullRedrawRegression() {
   );
 }
 
+function runOverViewportRedrawRegression() {
+  const writes = [];
+  const moves = [];
+  const fakeOutput = {
+    columns: 80,
+    rows: 8,
+    write(chunk) {
+      writes.push(String(chunk));
+      return true;
+    },
+    on() {},
+    off() {},
+    cursorTo() {
+      writes.push("[cursorTo]");
+    },
+    moveCursor(_output, dx, dy) {
+      moves.push({ dx, dy });
+      writes.push(`[moveCursor:${dx},${dy}]`);
+    },
+    clearScreenDown() {
+      writes.push("[clearScreenDown]");
+    },
+  };
+  const host = new CaraComponentHost({ output: fakeOutput, autoRender: true });
+  host.setInteractive(true);
+  host.append(new StaticLinesComponent("long", Array.from({ length: 40 }, (_, index) => `line ${index + 1}`)));
+  host.invalidate({ force: true });
+
+  assert.equal(countPhysicalRows(host.renderedLines, host.width()) <= fakeOutput.rows, true, "interactive host must only own visible viewport rows");
+  host.invalidate({ force: true });
+  assert.equal(
+    moves.every((move) => Math.abs(move.dy) <= fakeOutput.rows - 1),
+    true,
+    "clear must never seek above the visible viewport when transcript exceeds terminal height",
+  );
+}
+
 runDeltaStreamingRegression();
 runFullSnapshotRegression();
 runRepeatedSnapshotRegression();
@@ -335,4 +372,5 @@ runAssistantAndToolInterleaveRegression();
 runWidthFitRegression();
 runStaticPanelsThroughHostRegression();
 runResizeFullRedrawRegression();
+runOverViewportRedrawRegression();
 console.log("cara-ui render regression: ok");
