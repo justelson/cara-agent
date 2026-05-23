@@ -6,6 +6,12 @@ import { truncateToWidth } from "@earendil-works/pi-tui";
 const sep = " \u00b7 ";
 const reset = "\x1b[0m";
 const dim = "\x1b[2m";
+const blue = "\x1b[38;5;75m";
+const pink = "\x1b[38;5;213m";
+const green1 = "\x1b[38;5;70m";
+const green2 = "\x1b[38;5;76m";
+const green3 = "\x1b[38;5;82m";
+const green4 = "\x1b[38;5;46m";
 const branchCache = new Map();
 const branchCacheMs = 4000;
 
@@ -37,23 +43,23 @@ export function renderStatusLine(runtime, width = Math.max(24, (process.stdout.c
 
   const right = buildRightStatusParts(context, cwd, cost, rightBudget);
   const left = [
-    low(theme.primary, ` ${modelLabel}`),
-    low(theme.warning, ` ${thinking}`),
+    color(theme.primary, ` ${modelLabel}`),
+    color(theme.warning, ` ${thinking}`),
     low(theme.muted, sep),
-    low(theme.accent, profile),
+    color(profileColor(theme, profile), profile),
     activity ? low(theme.muted, sep) : "",
-    activity ? low(theme.info, activity) : "",
+    activity ? color(theme.info, activity) : "",
   ].join("");
 
   const rightColored = right.cwd
     ? [
-        low(contextColor(theme, session), right.context),
+        color(contextColor(theme, session), right.context),
         low(theme.muted, sep),
         low(theme.muted, right.cwd),
         low(theme.muted, sep),
-        low(theme.success, right.cost),
+        color(costColor(theme, right.cost), right.cost),
       ].join("")
-    : [low(contextColor(theme, session), right.context), low(theme.muted, sep), low(theme.success, right.cost)].join("");
+    : [color(contextColor(theme, session), right.context), low(theme.muted, sep), color(costColor(theme, right.cost), right.cost)].join("");
 
   return [left, " ".repeat(gap), rightColored, reset].join("");
 }
@@ -141,6 +147,27 @@ function contextColor(theme, session) {
   if (percent >= 85) return theme.error;
   if (percent >= 65) return theme.warning;
   return theme.success;
+}
+
+function profileColor(theme, profile) {
+  const value = String(profile ?? "").toLowerCase();
+  if (value === "elson") return blue;
+  if (value === "cara") return pink;
+  return theme.accent;
+}
+
+function costColor(theme, cost) {
+  const value = Number(String(cost ?? "").match(/\$([0-9.]+)/)?.[1] ?? 0);
+  if (value >= 1) return green4;
+  if (value >= 0.25) return green3;
+  if (value >= 0.05) return green2;
+  if (value > 0) return green1;
+  return theme.success;
+}
+
+function color(style, text) {
+  if (!text) return "";
+  return `${style ?? ""}${text}${reset}`;
 }
 
 function low(style, text) {

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { AssistantMessageLifecycle, createCaraUi, mergeAssistantTextDelta } from "../src/cara-ui.mjs";
-import { CaraComponentHost, StaticLinesComponent } from "../src/tui/cara-tui.mjs";
+import { renderStatusLine } from "../src/status-line.mjs";
+import { routeTerminalInputText } from "../src/terminal-input.mjs";
+import { CaraComponentHost, EditorComponent, StaticLinesComponent } from "../src/tui/cara-tui.mjs";
 import { countPhysicalRows, stripAnsi } from "../src/tui/render-utils.mjs";
 
 function assistantMessage(text = "", id = "assistant-1") {
@@ -430,6 +432,131 @@ function runPreInteractivePanelsSurviveInteractiveRegression() {
   assert.match(plain, /\/start/);
 }
 
+function runTranscriptScrollKeepsInputPinnedRegression() {
+  const fakeOutput = {
+    columns: 80,
+    rows: 10,
+    write() {
+      return true;
+    },
+    on() {},
+    off() {},
+  };
+  const host = new CaraComponentHost({ output: fakeOutput, autoRender: true });
+  host.setInteractive(true);
+  host.append(new StaticLinesComponent("content", Array.from({ length: 30 }, (_, index) => `line ${index + 1}`)));
+  host.setInputComponent(new StaticLinesComponent("input", ["> input", "", "status"]));
+
+  const bottom = host.renderInteractiveLines(79, 10).map(stripAnsi);
+  assert.equal(bottom.at(-3), "> input");
+  assert.equal(bottom.at(-1), "status");
+  assert.equal(bottom.some((line) => line.includes("line 30")), true);
+
+  assert.equal(host.scrollBy(8), true);
+  const scrolled = host.renderInteractiveLines(79, 10).map(stripAnsi);
+  assert.equal(scrolled.at(-3), "> input");
+  assert.equal(scrolled.at(-1), "status");
+  assert.equal(scrolled.some((line) => line.includes("line 30")), false, "scrolling up should reveal older transcript lines without moving input");
+}
+
+function runEditorStatusGapRegression() {
+  const editor = new EditorComponent({
+    statusLine: () => "STATUS",
+    suggestions: () => [],
+    theme: {},
+  });
+  const lines = editor.render(80).map(stripAnsi);
+  assert.equal(lines.at(-2), "", "editor should leave one empty line between input and status line");
+  assert.equal(lines.at(-1), "STATUS");
+}
+
+async function runEditorScrollPreemptsPromptRotationRegression() {
+  let scrolledRows = 0;
+  const editor = new EditorComponent({
+    starterRecommendations: [{ prompt: "write a small note" }],
+    suggestions: () => [],
+    theme: {},
+  });
+  editor.setHost({
+    canScroll: () => true,
+    height: () => 24,
+    scrollBy(rows) {
+      scrolledRows += rows;
+      return true;
+    },
+    invalidate() {},
+  });
+
+  await editor.handleKeypress("", { name: "up" });
+  assert.equal(scrolledRows, 3);
+  assert.equal(editor.buffer, "", "up should scroll transcript before it inserts starter prompts when content can scroll");
+}
+
+function runStatusLineColorRegression() {
+  const runtime = {
+    profile: "elson",
+    terminalTheme: {
+      primary: "\x1b[31m",
+      warning: "\x1b[33m",
+      muted: "\x1b[90m",
+      accent: "\x1b[35m",
+      info: "\x1b[36m",
+      success: "\x1b[32m",
+      error: "\x1b[91m",
+    },
+    session: {
+      model: { id: "gpt-test" },
+      thinkingLevel: "medium",
+      getContextUsage: () => ({ percent: 72 }),
+      sessionManager: {
+        getCwd: () => "C:\\Users\\elson\\project",
+        getEntries: () => [{ type: "message", message: { role: "assistant", usage: { cost: { total: 0.3 } } } }],
+      },
+      modelRegistry: {
+        isUsingOAuth: () => false,
+      },
+    },
+  };
+  const line = renderStatusLine(runtime, 120);
+
+  assert.match(line, /\x1b\[31m gpt-test/);
+  assert.match(line, /\x1b\[33m medium/);
+  assert.match(line, /\x1b\[38;5;75melson/);
+  assert.match(line, /\x1b\[33mContext 28% left/);
+  assert.match(line, /\x1b\[38;5;82m\$0\.300/);
+}
+
+function runMouseWheelInputRoutingRegression() {
+  const typed = [];
+  const wheels = [];
+  const handlers = {
+    writeKeypressData: (value) => typed.push(value),
+    onWheel: (direction) => wheels.push(direction),
+  };
+
+  let pending = routeTerminalInputText(`ab\x1b[<64;10;10Mcd\x1b[<65;10;10M`, handlers);
+  assert.equal(pending, "");
+  assert.deepEqual(typed, ["ab", "cd"]);
+  assert.deepEqual(wheels, [1, -1]);
+
+  typed.length = 0;
+  wheels.length = 0;
+  pending = routeTerminalInputText(`x\x1b[<64;10`, handlers);
+  assert.equal(pending, "\x1b[<64;10");
+  assert.deepEqual(typed, ["x"]);
+  assert.deepEqual(wheels, []);
+
+  pending = routeTerminalInputText(`${pending};10M y`, handlers);
+  assert.equal(pending, "");
+  assert.deepEqual(typed, ["x", " y"]);
+  assert.deepEqual(wheels, [1]);
+
+  typed.length = 0;
+  pending = routeTerminalInputText("\x1b", handlers);
+  assert.equal(pending, "");
+  assert.deepEqual(typed, ["\x1b"], "plain escape must still reach the editor");
+}
+
 runDeltaStreamingRegression();
 runFullSnapshotRegression();
 runRepeatedSnapshotRegression();
@@ -448,4 +575,9 @@ runResizeFullRedrawRegression();
 runOverViewportRedrawRegression();
 runInteractiveHostUsesAlternateScreenRegression();
 runPreInteractivePanelsSurviveInteractiveRegression();
+runTranscriptScrollKeepsInputPinnedRegression();
+runEditorStatusGapRegression();
+await runEditorScrollPreemptsPromptRotationRegression();
+runStatusLineColorRegression();
+runMouseWheelInputRoutingRegression();
 console.log("cara-ui render regression: ok");

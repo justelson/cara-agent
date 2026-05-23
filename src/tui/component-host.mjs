@@ -34,6 +34,7 @@ export class CaraComponentHost {
     this.autoRender = Boolean(options.autoRender);
     this.useAlternateScreen = options.useAlternateScreen ?? true;
     this.alternateScreenActive = false;
+    this.scrollOffsetRows = 0;
   }
 
   width() {
@@ -138,8 +139,7 @@ export class CaraComponentHost {
     this.previousWidth = width;
     this.previousHeight = height;
 
-    const allLines = this.renderLines(width);
-    const lines = this.interactive ? visibleViewportLines(allLines, width, height) : allLines;
+    const lines = this.interactive ? this.renderInteractiveLines(width, height) : this.renderLines(width);
     const output = lines.join("\n");
 
     if (!this.interactive) {
@@ -161,14 +161,80 @@ export class CaraComponentHost {
   }
 
   renderLines(width = this.width()) {
+    return renderLinesWithinWidth([...this.renderContentLines(width), ...this.renderFixedLines(width)], width);
+  }
+
+  renderContentLines(width = this.width()) {
     const lines = [];
     for (const component of this.components) {
       if (component.hidden) continue;
       lines.push(...safeRender(component, width));
     }
+    return renderLinesWithinWidth(lines, width);
+  }
+
+  renderFixedLines(width = this.width()) {
+    const lines = [];
     if (this.inputComponent) lines.push(...safeRender(this.inputComponent, width));
     if (this.footerComponent) lines.push(...safeRender(this.footerComponent, width));
     return renderLinesWithinWidth(lines, width);
+  }
+
+  renderInteractiveLines(width = this.width(), height = this.height()) {
+    const contentLines = this.renderContentLines(width);
+    const fixedLines = this.renderFixedLines(width);
+    const fixedRows = countPhysicalRows(fixedLines, width);
+    const contentHeight = Math.max(0, height - fixedRows);
+
+    if (contentHeight <= 0) {
+      this.scrollOffsetRows = 0;
+      return visibleViewportLines(fixedLines, width, height);
+    }
+
+    const maxScrollOffset = maxScrollOffsetFor(contentLines, width, contentHeight);
+    this.scrollOffsetRows = clamp(this.scrollOffsetRows, 0, maxScrollOffset);
+    return [
+      ...visibleViewportLines(contentLines, width, contentHeight, this.scrollOffsetRows),
+      ...fixedLines,
+    ];
+  }
+
+  scrollBy(rows) {
+    const width = this.width();
+    const height = this.height();
+    const fixedRows = countPhysicalRows(this.renderFixedLines(width), width);
+    const contentHeight = Math.max(0, height - fixedRows);
+    const maxScrollOffset = maxScrollOffsetFor(this.renderContentLines(width), width, contentHeight);
+    const next = clamp(this.scrollOffsetRows + rows, 0, maxScrollOffset);
+    if (next === this.scrollOffsetRows) return false;
+    this.scrollOffsetRows = next;
+    this.invalidate({ force: true });
+    return true;
+  }
+
+  scrollToBottom() {
+    if (this.scrollOffsetRows === 0) return false;
+    this.scrollOffsetRows = 0;
+    this.invalidate({ force: true });
+    return true;
+  }
+
+  scrollToTop() {
+    const width = this.width();
+    const fixedRows = countPhysicalRows(this.renderFixedLines(width), width);
+    const contentHeight = Math.max(0, this.height() - fixedRows);
+    const maxScrollOffset = maxScrollOffsetFor(this.renderContentLines(width), width, contentHeight);
+    if (this.scrollOffsetRows === maxScrollOffset) return false;
+    this.scrollOffsetRows = maxScrollOffset;
+    this.invalidate({ force: true });
+    return true;
+  }
+
+  canScroll() {
+    const width = this.width();
+    const fixedRows = countPhysicalRows(this.renderFixedLines(width), width);
+    const contentHeight = Math.max(0, this.height() - fixedRows);
+    return maxScrollOffsetFor(this.renderContentLines(width), width, contentHeight) > 0;
   }
 
   clearRendered(width = this.width()) {
@@ -240,14 +306,20 @@ function safeRender(component, width) {
   return Array.isArray(lines) ? lines : [];
 }
 
-function visibleViewportLines(lines, width, height) {
+function visibleViewportLines(lines, width, height, scrollOffsetRows = 0) {
   const maxRows = Math.max(1, Number(height) || 1);
+  const skipRows = Math.max(0, Number(scrollOffsetRows) || 0);
   const kept = [];
   let rows = 0;
+  let skipped = 0;
 
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = lines[index];
     const lineRows = physicalRowsForLine(line, width);
+    if (skipped < skipRows) {
+      skipped += lineRows;
+      continue;
+    }
     if (kept.length > 0 && rows + lineRows > maxRows) break;
     kept.unshift(line);
     rows += lineRows;
@@ -255,4 +327,12 @@ function visibleViewportLines(lines, width, height) {
   }
 
   return kept;
+}
+
+function maxScrollOffsetFor(lines, width, height) {
+  return Math.max(0, countPhysicalRows(lines, width) - Math.max(0, height));
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }

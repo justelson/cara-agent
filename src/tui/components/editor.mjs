@@ -105,7 +105,7 @@ export class EditorComponent {
     }
 
     const statusLine = this.options.statusLine?.(width, { activity: "" });
-    if (statusLine) lines.push(statusLine);
+    if (statusLine) lines.push("", statusLine);
     return lines;
   }
 
@@ -117,6 +117,7 @@ export class EditorComponent {
       return;
     }
     const suggestions = this.suggestionsFor(this.buffer);
+    if (this.handleScrollKey(key, suggestions)) return;
     const starterPromptIsInserted = this.insertedStarterPrompt && this.buffer.trim() === this.insertedStarterPrompt.trim();
     if (key?.name === "down" && (this.shouldShowStarterRecommendations() || starterPromptIsInserted)) return this.clearStarterRecommendation();
     if (key?.name === "up" && this.shouldShowStarterRecommendations()) return this.insertStarterRecommendation();
@@ -184,6 +185,21 @@ export class EditorComponent {
       return;
     }
     if (isPlainTextInput) this.queueTextInput(str);
+  }
+
+  handleScrollKey(key, suggestions = []) {
+    if (!key?.name || !this.host?.canScroll?.()) return false;
+    const canUseArrowForScroll = !this.buffer.trim() && suggestions.length === 0 && this.pastedBlocks.length === 0 && this.pastedImages.length === 0 && this.imagePastePromises.size === 0;
+    const page = Math.max(4, Math.floor((this.host.height?.() ?? 24) / 2));
+
+    if (key.name === "pageup" || key.name === "prior") return this.host.scrollBy(page);
+    if (key.name === "pagedown" || key.name === "next") return this.host.scrollBy(-page);
+    if (key.name === "home" && (key.ctrl || canUseArrowForScroll)) return this.host.scrollToTop();
+    if (key.name === "end" && (key.ctrl || canUseArrowForScroll)) return this.host.scrollToBottom();
+    if (key.name === "up" && canUseArrowForScroll) return this.host.scrollBy(3);
+    if (key.name === "down" && canUseArrowForScroll) return this.host.scrollBy(-3);
+
+    return false;
   }
 
   async submit(text) {
