@@ -315,7 +315,7 @@ function runResizeFullRedrawRegression() {
   assert.notEqual(narrowOutput, wideOutput, "width changes must force a fresh host output snapshot");
   assert.equal(host.previousWidth, 89);
   assert.equal(
-    writes.some((chunk) => chunk.includes("[clearScreenDown]") || chunk.includes("\x1b[0J") || chunk.includes("\x1b[J")),
+    writes.some((chunk) => chunk.includes("[clearScreenDown]") || chunk.includes("\x1b[0J") || chunk.includes("\x1b[J") || chunk.includes("\x1b[2J\x1b[H")),
     true,
     "redraw should clear stale lower screen rows",
   );
@@ -355,6 +355,11 @@ function runOverViewportRedrawRegression() {
     moves.every((move) => Math.abs(move.dy) <= fakeOutput.rows - 1),
     true,
     "clear must never seek above the visible viewport when transcript exceeds terminal height",
+  );
+  assert.equal(
+    writes.filter((chunk) => chunk.includes("\x1b[2J\x1b[H")).length >= 2,
+    true,
+    "interactive redraws should clear from absolute screen home instead of appending stream snapshots",
   );
 }
 

@@ -152,7 +152,7 @@ export class CaraComponentHost {
     if (!resized && !options.force && output === this.lastOutput) return;
 
     this.beginBatch();
-    this.clearRendered(width);
+    this.output.write(clearScreen);
     if (output) this.output.write(output);
     this.endBatch();
     this.renderedLines = [...lines];
