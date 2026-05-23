@@ -108,7 +108,6 @@ export function createCaraUi(options = {}) {
 
   function streamAssistantEvent(event) {
     assistantLifecycle.update(event);
-    if (!assistantLifecycle.hasTransient()) return;
     activityLabel = activityFromAssistantEvent(event);
     if (progressBox) {
       updateProgressBox({
@@ -336,8 +335,7 @@ export function createCaraUi(options = {}) {
         hasTransientLines() {
           return Boolean(
             (progressBox && !progressBox.done) ||
-            activeTools.size > 0 ||
-            assistantLifecycle.hasTransient()
+            activeTools.size > 0
           );
         },
         getTransientLines() {
@@ -347,10 +345,6 @@ export function createCaraUi(options = {}) {
           const lines = [];
           for (const toolState of activeTools.values()) {
             lines.push(...renderToolBlock(toolState, theme));
-          }
-          if (lines.length > 0) return lines;
-          if (assistantLifecycle.hasTransient()) {
-            return formatAssistantContent(assistantLifecycle.getTransient(), theme);
           }
           return lines;
         },
@@ -604,23 +598,12 @@ function assistantLine(text) {
 
 function renderToolMessage(rows, state, theme = fallbackTheme) {
   const terminalWidth = Math.max(24, (output.columns ?? 100) - 3);
-  const desiredWidth = Math.max(32, ...rows.map((row) => visibleWidthForTool(row.text ?? "") + 4));
-  const width = Math.min(terminalWidth, desiredWidth);
-  const contentWidth = Math.max(1, width - 4);
-  const borderColor = state.isError ? theme.error : state.isDone ? theme.success : theme.primary;
-  const top = `${borderColor}╭${"─".repeat(width - 2)}╮${reset}`;
-  const bottom = `${borderColor}╰${"─".repeat(width - 2)}╯${reset}`;
   const line = (row = "") => {
     const item = typeof row === "string" ? { kind: "detail", text: row } : row;
     const color = toolRowColor(item.kind, theme);
-    const content = truncate(item.text ?? "", contentWidth);
-    return `${borderColor}│${reset} ${color}${padDisplay(content, contentWidth)}${reset} ${borderColor}│${reset}`;
+    return `${color}${truncate(item.text ?? "", terminalWidth)}${reset}`;
   };
-  return ["", top, ...rows.map((row) => line(row)), bottom, ""];
-}
-
-function visibleWidthForTool(text) {
-  return stripAnsi(String(text ?? "")).length;
+  return ["", ...rows.map((row) => line(row)), ""];
 }
 
 function toolRowColor(kind, theme = fallbackTheme) {

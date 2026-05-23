@@ -87,7 +87,7 @@ function runMergeHelperRegression() {
   assert.equal(mergeAssistantTextDelta("Yep.", "Yep. Here"), "Yep. Here");
 }
 
-function runUiEventCaptureRegression() {
+function captureStdout(fn) {
   const originalWrite = process.stdout.write.bind(process.stdout);
   let captured = "";
   process.stdout.write = (chunk, encoding, callback) => {
@@ -96,8 +96,16 @@ function runUiEventCaptureRegression() {
     if (typeof callback === "function") callback();
     return true;
   };
-
   try {
+    fn();
+  } finally {
+    process.stdout.write = originalWrite;
+  }
+  return captured;
+}
+
+function runUiEventCaptureRegression() {
+  const captured = captureStdout(() => {
     const ui = createCaraUi();
     ui.event({ type: "message_start", message: assistantMessage() });
     ui.event(updateEvent("Yep. Here’s the useful recap:"));
@@ -107,9 +115,7 @@ function runUiEventCaptureRegression() {
       type: "message_end",
       message: assistantMessage("Yep. Here’s the useful recap:\n\nYou asked where the original Cara project was."),
     });
-  } finally {
-    process.stdout.write = originalWrite;
-  }
+  });
 
   assert.equal(
     (captured.match(/Yep/g) ?? []).length,
@@ -118,10 +124,31 @@ function runUiEventCaptureRegression() {
   );
 }
 
+function runToolOutputStyleRegression() {
+  const captured = captureStdout(() => {
+    const ui = createCaraUi();
+    ui.event({
+      type: "tool_execution_end",
+      toolName: "bash",
+      toolCallId: "tool-1",
+      args: { command: "git remote -v" },
+      result: {
+        content: [{ type: "text", text: "origin https://github.com/justelson/elxnplus.git (fetch)" }],
+      },
+    });
+  });
+
+  assert.equal(captured.includes("summary ..."), false);
+  assert.equal(captured.includes("╭"), false, "tool output should not use the accidental new rounded-box style");
+  assert.match(captured, /bash succeeded/);
+  assert.match(captured, /git remote -v/);
+}
+
 runDeltaStreamingRegression();
 runFullSnapshotRegression();
 runRepeatedSnapshotRegression();
 runMarkdownCodeBlockRegression();
 runMergeHelperRegression();
 runUiEventCaptureRegression();
+runToolOutputStyleRegression();
 console.log("cara-ui render regression: ok");
