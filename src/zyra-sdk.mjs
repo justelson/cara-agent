@@ -14,7 +14,9 @@ import {
   forgetZyraMemory,
   formatZyraMemorySearch,
   formatZyraMemorySources,
+  readZyraMemory,
   rebuildZyraMemory,
+  runZyraMemoryStartup,
 } from "./zyra-memory.mjs";
 import { expandFileMentions } from "./file-mentions.mjs";
 import { DEFAULT_TERMINAL_THEME, listTerminalThemes, resolveTerminalTheme } from "./terminal-theme.mjs";
@@ -249,6 +251,11 @@ export async function createZyraSession(options = {}) {
   injectZyraGuide(result.session, readPrompt(defaults.prompt));
   injectSurfaceGuide(result.session, options.surface);
   ensureZyraMemory(ROOT);
+  const memoryStartup = runZyraMemoryStartup(ROOT, {
+    project,
+    sessions,
+    session: result.session,
+  }, { maxClaimed: options.memoryStartupMaxClaimed ?? 2 });
   injectLayeredMemory(result.session, ROOT);
   injectActiveProfile(result.session, profile);
   const projectMemory = injectProjectMemory(result.session, project);
@@ -265,6 +272,7 @@ export async function createZyraSession(options = {}) {
     profile,
     surface: options.surface,
     projectMemory,
+    memoryStartup,
     thinking,
     modelFallbackMessage: result.modelFallbackMessage,
   };
@@ -1037,12 +1045,48 @@ export function buildZyraMemorySources() {
   return formatZyraMemorySources(defaults.root);
 }
 
+export function buildZyraMemoryJobs() {
+  const state = readZyraMemory(defaults.root).state;
+  const lines = ["Memory jobs"];
+  const stage1Jobs = Object.values(state.jobs?.memory_stage1 ?? {});
+  const phase2Jobs = Object.values(state.jobs?.memory_consolidate_global ?? {});
+  if (!stage1Jobs.length && !phase2Jobs.length) {
+    lines.push("", "  No memory jobs yet.");
+    return lines;
+  }
+  if (stage1Jobs.length) {
+    lines.push("", "Stage 1");
+    for (const job of stage1Jobs.slice(0, 20)) {
+      lines.push(`  ${job.jobKey}  ${job.status}`);
+      lines.push(`    source: ${job.sourcePath ?? "unknown"}`);
+      if (job.leaseUntil) lines.push(`    lease: ${job.leaseUntil}`);
+      if (job.lastError) lines.push(`    error: ${job.lastError}`);
+    }
+  }
+  if (phase2Jobs.length) {
+    lines.push("", "Phase 2");
+    for (const job of phase2Jobs) {
+      lines.push(`  ${job.jobKey}  ${job.status}`);
+      lines.push(`    watermark: ${job.inputWatermark ?? 0}`);
+      if (job.leaseUntil) lines.push(`    lease: ${job.leaseUntil}`);
+      if (job.lastError) lines.push(`    error: ${job.lastError}`);
+    }
+  }
+  return lines;
+}
+
 export function disableZyraMemorySource(threadId) {
   return forgetZyraMemory(defaults.root, threadId);
 }
 
 export function rebuildZyraMemorySources() {
   return rebuildZyraMemory(defaults.root);
+}
+
+export function runZyraRuntimeMemoryStartup(runtime, options = {}) {
+  const result = runZyraMemoryStartup(defaults.root, runtime, options);
+  runtime.memoryStartup = result;
+  return result;
 }
 
 export function listCustomCommands(runtime) {
@@ -1090,6 +1134,7 @@ export async function reloadZyraRuntime(runtime) {
   injectZyraGuide(runtime.session, readPrompt(defaults.prompt));
   injectSurfaceGuide(runtime.session, runtime.surface);
   ensureZyraMemory(defaults.root);
+  runtime.memoryStartup = runZyraMemoryStartup(defaults.root, runtime, { maxClaimed: 2 });
   injectLayeredMemory(runtime.session, defaults.root);
   injectActiveProfile(runtime.session, runtime.profile ?? detectDefaultProfile());
   runtime.projectMemory = injectProjectMemory(runtime.session, runtime.project);

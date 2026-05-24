@@ -7,6 +7,7 @@ import {
   buildInspectPrompt,
   buildZyraAuthAccountStatus,
   buildZyraConsolidationPrompt,
+  buildZyraMemoryJobs,
   buildZyraMemorySearch,
   buildZyraMemorySources,
   buildSessionInfo,
@@ -21,6 +22,7 @@ import {
   listZyraSessions,
   rebuildZyraMemorySources,
   reloadZyraRuntime,
+  runZyraRuntimeMemoryStartup,
   runZyraPrompt,
   runZyraPrintPrompt,
   saveZyraExitSummary,
@@ -441,6 +443,15 @@ async function handleSlash(runtime, ui, input, controls = {}) {
       ui.block(buildZyraMemorySources());
       return true;
     }
+    if (memoryAction === "jobs") {
+      ui.block(buildZyraMemoryJobs());
+      return true;
+    }
+    if (memoryAction === "startup") {
+      const result = runZyraRuntimeMemoryStartup(runtime);
+      ui.info(`Memory startup: ${result.claimed} claimed, ${result.prepared} prepared, ${result.pruned} pruned.`);
+      return true;
+    }
     if (memoryAction === "forget") {
       const threadId = memoryArg;
       if (!threadId) {
@@ -457,7 +468,7 @@ async function handleSlash(runtime, ui, input, controls = {}) {
       ui.info(`Memory inputs rebuilt: ${outputs.length} source${outputs.length === 1 ? "" : "s"}.`);
       return true;
     }
-    ui.info("Usage: /memory, /memory search <query>, /memory sources, /memory forget <source-id>");
+    ui.info("Usage: /memory, /memory search <query>, /memory sources, /memory jobs, /memory startup, /memory forget <source-id>");
     return true;
   }
   if (command === "/auth" || command === "/account") {

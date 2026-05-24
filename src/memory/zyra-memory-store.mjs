@@ -7,6 +7,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 export const MEMORY_DIR = ".zyra/memory";
@@ -24,6 +25,14 @@ const ROLLOUT_SUMMARIES_DIR = "rollout_summaries";
 const EXTENSIONS_DIR = "extensions";
 const AD_HOC_DIR = path.join(EXTENSIONS_DIR, "ad_hoc");
 const AD_HOC_NOTES_DIR = path.join(AD_HOC_DIR, "notes");
+const JOB_KIND_STAGE1 = "memory_stage1";
+const JOB_KIND_PHASE2 = "memory_consolidate_global";
+const GLOBAL_PHASE2_JOB_KEY = "global";
+const DEFAULT_STAGE1_LEASE_SECONDS = 60 * 60;
+const DEFAULT_PHASE2_LEASE_SECONDS = 60 * 60;
+const DEFAULT_PHASE2_COOLDOWN_SECONDS = 6 * 60 * 60;
+const DEFAULT_RETRY_REMAINING = 3;
+const DEFAULT_RETRY_DELAY_SECONDS = 15 * 60;
 
 const LEGACY_LAYER_FILES = [
   "cara-profile.md",
@@ -223,6 +232,313 @@ export function listStage1Outputs(root, options = {}) {
   return Number.isFinite(options.limit) ? sorted.slice(0, options.limit) : sorted;
 }
 
+export function scanMemorySessionSources(project, options = {}) {
+  const dirs = [
+    options.sessionsDir,
+    project ? path.join(path.resolve(project), ".zyra", "sessions") : undefined,
+    project ? path.join(path.resolve(project), ".cara", "sessions") : undefined,
+  ]
+    .filter(Boolean)
+    .map((dir) => path.resolve(dir));
+  const seen = new Set();
+  const sources = [];
+  for (const dir of dirs) {
+    if (seen.has(dir) || !existsSync(dir)) continue;
+    seen.add(dir);
+    for (const file of safeReadDir(dir)) {
+      if (!file.endsWith(".jsonl")) continue;
+      const sourcePath = path.join(dir, file);
+      const source = sessionSourceFromFile(sourcePath);
+      if (source) sources.push(source);
+    }
+  }
+  return sources.sort((left, right) => Date.parse(right.sourceUpdatedAt) - Date.parse(left.sourceUpdatedAt));
+}
+
+export function claimStage1JobsForStartup(root, params = {}) {
+  ensureMemoryWorkspace(root);
+  const nowMs = Date.parse(params.now ?? new Date().toISOString());
+  const scanLimit = clamp(params.scanLimit ?? 50, 1, 500);
+  const maxClaimed = clamp(params.maxClaimed ?? 3, 0, 50);
+  if (maxClaimed === 0) return [];
+
+  const maxAgeMs = Math.max(0, Number(params.maxAgeDays ?? 45)) * 24 * 60 * 60 * 1000;
+  const minIdleMs = Math.max(0, Number(params.minIdleMinutes ?? 15)) * 60 * 1000;
+  const currentSessionFile = params.currentSessionFile ? path.resolve(params.currentSessionFile) : "";
+  const sources = (params.sources ?? scanMemorySessionSources(params.project ?? root, { sessionsDir: params.sessionsDir }))
+    .slice(0, scanLimit);
+  const claims = [];
+
+  for (const source of sources) {
+    if (claims.length >= maxClaimed) break;
+    const sourcePath = path.resolve(source.sourcePath);
+    if (currentSessionFile && sourcePath.toLowerCase() === currentSessionFile.toLowerCase()) continue;
+    const sourceUpdatedAtMs = Date.parse(source.sourceUpdatedAt);
+    if (!Number.isFinite(sourceUpdatedAtMs)) continue;
+    if (maxAgeMs && nowMs - sourceUpdatedAtMs > maxAgeMs) continue;
+    if (minIdleMs && nowMs - sourceUpdatedAtMs < minIdleMs) continue;
+
+    const threadId = sanitizeId(source.threadId);
+    const state = readMemoryState(root);
+    if (state.threadMemoryModes?.[threadId] && state.threadMemoryModes[threadId] !== "enabled") continue;
+    const existing = readStage1Output(root, threadId);
+    if (existing && Date.parse(existing.sourceUpdatedAt) >= sourceUpdatedAtMs) continue;
+
+    const claim = tryClaimStage1Job(root, source, {
+      now: new Date(nowMs).toISOString(),
+      leaseSeconds: params.leaseSeconds ?? DEFAULT_STAGE1_LEASE_SECONDS,
+    });
+    if (claim.status === "claimed") claims.push(claim);
+  }
+
+  return claims;
+}
+
+export function tryClaimStage1Job(root, source, options = {}) {
+  ensureMemoryWorkspace(root);
+  const now = normalizeIso(options.now) ?? new Date().toISOString();
+  const nowMs = Date.parse(now);
+  const threadId = sanitizeId(source.threadId ?? sessionIdFromPath(source.sourcePath));
+  const state = readMemoryState(root);
+  const jobs = state.jobs[JOB_KIND_STAGE1] ?? {};
+  const existing = jobs[threadId];
+  if (["running", "prepared"].includes(existing?.status) && Date.parse(existing.leaseUntil ?? 0) > nowMs) {
+    return { status: "skipped_running", threadId };
+  }
+  if (existing?.retryRemaining === 0) {
+    return { status: "skipped_retry_exhausted", threadId };
+  }
+  if (existing?.retryAt && Date.parse(existing.retryAt) > nowMs) {
+    return { status: "skipped_retry_backoff", threadId };
+  }
+
+  const ownershipToken = randomUUID();
+  const job = {
+    kind: JOB_KIND_STAGE1,
+    jobKey: threadId,
+    status: "running",
+    workerId: options.workerId ?? "zyra-local",
+    ownershipToken,
+    startedAt: now,
+    leaseUntil: new Date(nowMs + Math.max(1, Number(options.leaseSeconds ?? DEFAULT_STAGE1_LEASE_SECONDS)) * 1000).toISOString(),
+    retryRemaining: Number.isFinite(existing?.retryRemaining) ? existing.retryRemaining : DEFAULT_RETRY_REMAINING,
+    sourcePath: source.sourcePath ? path.resolve(source.sourcePath) : "",
+    sourceUpdatedAt: normalizeIso(source.sourceUpdatedAt) ?? now,
+    cwd: source.cwd ? path.resolve(source.cwd) : "",
+  };
+  state.jobs[JOB_KIND_STAGE1] = { ...jobs, [threadId]: job };
+  writeMemoryState(root, state);
+  return { status: "claimed", threadId, ownershipToken, source: { ...source, threadId }, job };
+}
+
+export function prepareClaimedStage1Inputs(root, claims, options = {}) {
+  ensureMemoryWorkspace(root);
+  const paths = getMemoryPaths(root);
+  const prepared = [];
+  for (const claim of claims) {
+    if (claim.status !== "claimed") continue;
+    const sourcePath = claim.source?.sourcePath;
+    const snapshot = sourcePath
+      ? sessionSnapshotFromFile(sourcePath, { cwd: claim.source?.cwd })
+      : undefined;
+    if (!snapshot) continue;
+    const inputPath = path.join(paths.stage1Inputs, `${claim.threadId}.md`);
+    const rendered = renderSessionForMemory(snapshot, { maxChars: options.maxChars ?? 30000 });
+    writeFileSync(inputPath, rendered, "utf8");
+    updateStage1Job(root, claim.threadId, claim.ownershipToken, {
+      inputPath,
+      status: "prepared",
+      preparedAt: new Date().toISOString(),
+    });
+    prepared.push({ ...claim, inputPath, rendered });
+  }
+  return prepared;
+}
+
+export function markStage1JobSucceeded(root, claim, output) {
+  const job = getStage1JobForToken(root, claim.threadId, claim.ownershipToken);
+  if (!job) return false;
+  const record = upsertStage1Output(root, {
+    ...output,
+    threadId: claim.threadId,
+    sourcePath: output.sourcePath ?? job.sourcePath,
+    sourceUpdatedAt: output.sourceUpdatedAt ?? job.sourceUpdatedAt,
+    cwd: output.cwd ?? job.cwd,
+  });
+  updateStage1Job(root, claim.threadId, claim.ownershipToken, {
+    status: "succeeded",
+    finishedAt: new Date().toISOString(),
+    leaseUntil: undefined,
+    outputPath: stage1File(getMemoryPaths(root).stage1, claim.threadId),
+    lastError: undefined,
+  });
+  enqueuePhase2Job(root, record.sourceUpdatedAt);
+  return true;
+}
+
+export function markStage1JobSucceededNoOutput(root, claim) {
+  const job = getStage1JobForToken(root, claim.threadId, claim.ownershipToken);
+  if (!job) return false;
+  updateStage1Job(root, claim.threadId, claim.ownershipToken, {
+    status: "succeeded_no_output",
+    finishedAt: new Date().toISOString(),
+    leaseUntil: undefined,
+    lastError: undefined,
+  });
+  return true;
+}
+
+export function markStage1JobFailed(root, claim, error, options = {}) {
+  const job = getStage1JobForToken(root, claim.threadId, claim.ownershipToken);
+  if (!job) return false;
+  const nowMs = Date.now();
+  const retryRemaining = Math.max(0, Number(job.retryRemaining ?? DEFAULT_RETRY_REMAINING) - 1);
+  updateStage1Job(root, claim.threadId, claim.ownershipToken, {
+    status: "failed",
+    finishedAt: new Date(nowMs).toISOString(),
+    leaseUntil: undefined,
+    retryRemaining,
+    retryAt: retryRemaining > 0
+      ? new Date(nowMs + Math.max(1, Number(options.retryDelaySeconds ?? DEFAULT_RETRY_DELAY_SECONDS)) * 1000).toISOString()
+      : undefined,
+    lastError: error instanceof Error ? error.message : String(error ?? "stage-1 failed"),
+  });
+  return true;
+}
+
+export function claimGlobalPhase2Job(root, options = {}) {
+  ensureMemoryWorkspace(root);
+  const now = normalizeIso(options.now) ?? new Date().toISOString();
+  const nowMs = Date.parse(now);
+  const state = readMemoryState(root);
+  const jobs = state.jobs[JOB_KIND_PHASE2] ?? {};
+  const existing = jobs[GLOBAL_PHASE2_JOB_KEY];
+  if (existing?.status === "running" && Date.parse(existing.leaseUntil ?? 0) > nowMs) {
+    return { status: "skipped_running" };
+  }
+  if (existing?.retryRemaining === 0) {
+    return { status: "skipped_retry_unavailable" };
+  }
+  if (existing?.retryAt && Date.parse(existing.retryAt) > nowMs) {
+    return { status: "skipped_retry_unavailable" };
+  }
+  if (existing?.finishedAt && existing.status === "succeeded") {
+    const cooldownMs = Math.max(0, Number(options.cooldownSeconds ?? DEFAULT_PHASE2_COOLDOWN_SECONDS)) * 1000;
+    if (cooldownMs && nowMs - Date.parse(existing.finishedAt) < cooldownMs) {
+      return { status: "skipped_cooldown" };
+    }
+  }
+
+  const ownershipToken = randomUUID();
+  const inputWatermark = phase2InputWatermark(root);
+  const job = {
+    kind: JOB_KIND_PHASE2,
+    jobKey: GLOBAL_PHASE2_JOB_KEY,
+    status: "running",
+    workerId: options.workerId ?? "zyra-local",
+    ownershipToken,
+    startedAt: now,
+    leaseUntil: new Date(nowMs + Math.max(1, Number(options.leaseSeconds ?? DEFAULT_PHASE2_LEASE_SECONDS)) * 1000).toISOString(),
+    retryRemaining: Number.isFinite(existing?.retryRemaining) ? existing.retryRemaining : DEFAULT_RETRY_REMAINING,
+    inputWatermark,
+    lastSuccessWatermark: existing?.lastSuccessWatermark,
+  };
+  state.jobs[JOB_KIND_PHASE2] = { ...jobs, [GLOBAL_PHASE2_JOB_KEY]: job };
+  writeMemoryState(root, state);
+  return { status: "claimed", ownershipToken, inputWatermark, job };
+}
+
+export function markGlobalPhase2JobSucceeded(root, claim, selectedOutputs = listStage1Outputs(root, { enabledOnly: true })) {
+  const state = readMemoryState(root);
+  const job = state.jobs[JOB_KIND_PHASE2]?.[GLOBAL_PHASE2_JOB_KEY];
+  if (!job || job.ownershipToken !== claim.ownershipToken) return false;
+  const outputs = rebuildPhase2Inputs(root);
+  const next = readMemoryState(root);
+  const completedAt = new Date().toISOString();
+  next.phase2.selectedThreadIds = (selectedOutputs.length ? selectedOutputs : outputs).map((item) => item.threadId);
+  next.phase2.lastSuccessAt = completedAt;
+  next.phase2.lastSuccessWatermark = claim.inputWatermark ?? phase2InputWatermark(root);
+  next.jobs[JOB_KIND_PHASE2] = {
+    ...(next.jobs[JOB_KIND_PHASE2] ?? {}),
+    [GLOBAL_PHASE2_JOB_KEY]: {
+      ...job,
+      status: "succeeded",
+      finishedAt: completedAt,
+      leaseUntil: undefined,
+      lastSuccessWatermark: next.phase2.lastSuccessWatermark,
+    },
+  };
+  writeMemoryState(root, next);
+  return true;
+}
+
+export function markGlobalPhase2JobFailed(root, claim, error, options = {}) {
+  const state = readMemoryState(root);
+  const job = state.jobs[JOB_KIND_PHASE2]?.[GLOBAL_PHASE2_JOB_KEY];
+  if (!job || job.ownershipToken !== claim.ownershipToken) return false;
+  const retryRemaining = Math.max(0, Number(job.retryRemaining ?? DEFAULT_RETRY_REMAINING) - 1);
+  const nowMs = Date.now();
+  state.jobs[JOB_KIND_PHASE2][GLOBAL_PHASE2_JOB_KEY] = {
+    ...job,
+    status: "failed",
+    finishedAt: new Date(nowMs).toISOString(),
+    leaseUntil: undefined,
+    retryRemaining,
+    retryAt: retryRemaining > 0
+      ? new Date(nowMs + Math.max(1, Number(options.retryDelaySeconds ?? DEFAULT_RETRY_DELAY_SECONDS)) * 1000).toISOString()
+      : undefined,
+    lastError: error instanceof Error ? error.message : String(error ?? "phase-2 failed"),
+  };
+  writeMemoryState(root, state);
+  return true;
+}
+
+export function pruneStage1OutputsForRetention(root, options = {}) {
+  ensureBareMemoryWorkspace(root);
+  const maxUnusedDays = Math.max(1, Number(options.maxUnusedDays ?? 60));
+  const limit = clamp(options.limit ?? 100, 1, 1000);
+  const cutoff = Date.now() - maxUnusedDays * 24 * 60 * 60 * 1000;
+  const state = readMemoryState(root);
+  const selected = new Set(state.phase2.selectedThreadIds ?? []);
+  const paths = getMemoryPaths(root);
+  const pruned = [];
+  for (const output of listStage1Outputs(root)) {
+    if (pruned.length >= limit) break;
+    if (selected.has(output.threadId)) continue;
+    const timestamp = Date.parse(output.lastUsage ?? output.sourceUpdatedAt ?? output.generatedAt ?? 0);
+    if (!Number.isFinite(timestamp) || timestamp > cutoff) continue;
+    rmSync(stage1File(paths.stage1, output.threadId), { force: true });
+    delete state.stage1Outputs[output.threadId];
+    pruned.push(output.threadId);
+  }
+  if (pruned.length) {
+    writeMemoryState(root, state);
+    rebuildPhase2Inputs(root);
+  }
+  return pruned;
+}
+
+export function runMemoryStartup(root, runtime, options = {}) {
+  const project = options.project ?? runtime?.project ?? root;
+  const currentSessionFile = runtime?.session?.sessionManager?.getSessionFile?.();
+  const claims = claimStage1JobsForStartup(root, {
+    project,
+    sessionsDir: options.sessionsDir ?? runtime?.sessions,
+    currentSessionFile,
+    scanLimit: options.scanLimit,
+    maxClaimed: options.maxClaimed,
+    maxAgeDays: options.maxAgeDays,
+    minIdleMinutes: options.minIdleMinutes,
+    leaseSeconds: options.leaseSeconds,
+  });
+  const prepared = prepareClaimedStage1Inputs(root, claims, options);
+  const pruned = pruneStage1OutputsForRetention(root, {
+    maxUnusedDays: options.maxUnusedDays ?? 60,
+    limit: options.pruneLimit ?? 100,
+  });
+  return { claimed: claims.length, prepared: prepared.length, pruned: pruned.length, claims, prepared, pruned };
+}
+
 export function rebuildPhase2Inputs(root, options = {}) {
   ensureBareMemoryWorkspace(root);
   const paths = getMemoryPaths(root);
@@ -309,6 +625,8 @@ export function buildMemoryOverview(root) {
   lines.push("", "Commands");
   lines.push("  /memory search <query>  search source-backed memory");
   lines.push("  /memory sources         list stage-1 memory sources");
+  lines.push("  /memory jobs            show stage-1 and phase-2 worker state");
+  lines.push("  /memory startup         scan old sessions and prepare stage-1 inputs");
   lines.push("  /memory forget <id>     disable one memory source");
   lines.push("  /consolidate            extract and consolidate the current session");
   return lines;
@@ -544,11 +862,33 @@ function normalizeState(value) {
   state.createdAt = state.createdAt ?? new Date().toISOString();
   state.updatedAt = state.updatedAt ?? state.createdAt;
   state.stage1Outputs = state.stage1Outputs && typeof state.stage1Outputs === "object" ? state.stage1Outputs : {};
-  state.jobs = state.jobs && typeof state.jobs === "object" ? state.jobs : {};
+  state.jobs = normalizeJobs(state.jobs);
   state.phase2 = state.phase2 && typeof state.phase2 === "object" ? state.phase2 : {};
   state.phase2.selectedThreadIds = Array.isArray(state.phase2.selectedThreadIds) ? state.phase2.selectedThreadIds : [];
   state.migrations = state.migrations && typeof state.migrations === "object" ? state.migrations : {};
+  state.threadMemoryModes = state.threadMemoryModes && typeof state.threadMemoryModes === "object" ? state.threadMemoryModes : {};
   return state;
+}
+
+function normalizeJobs(jobs) {
+  const normalized = jobs && typeof jobs === "object" ? { ...jobs } : {};
+  if (normalized[JOB_KIND_STAGE1]?.jobKey) {
+    normalized[JOB_KIND_STAGE1] = {
+      [normalized[JOB_KIND_STAGE1].jobKey]: normalized[JOB_KIND_STAGE1],
+    };
+  }
+  if (!normalized[JOB_KIND_STAGE1] || typeof normalized[JOB_KIND_STAGE1] !== "object") {
+    normalized[JOB_KIND_STAGE1] = {};
+  }
+  if (normalized[JOB_KIND_PHASE2]?.kind === JOB_KIND_PHASE2) {
+    normalized[JOB_KIND_PHASE2] = {
+      [GLOBAL_PHASE2_JOB_KEY]: normalized[JOB_KIND_PHASE2],
+    };
+  }
+  if (!normalized[JOB_KIND_PHASE2] || typeof normalized[JOB_KIND_PHASE2] !== "object") {
+    normalized[JOB_KIND_PHASE2] = {};
+  }
+  return normalized;
 }
 
 function ensureBareMemoryWorkspace(root) {
@@ -660,7 +1000,6 @@ function stage1Metadata(output) {
 }
 
 function syncStateFromStage1Files(root, state) {
-  const paths = getMemoryPaths(root);
   const next = normalizeState(state);
   next.stage1Outputs = {};
   for (const output of listStage1Outputs(root)) {
@@ -670,6 +1009,59 @@ function syncStateFromStage1Files(root, state) {
     .filter((item) => item.memoryMode !== "disabled" && item.memoryMode !== "polluted")
     .map((item) => item.threadId);
   return next;
+}
+
+function updateStage1Job(root, threadId, ownershipToken, patch) {
+  const state = readMemoryState(root);
+  const jobs = state.jobs[JOB_KIND_STAGE1] ?? {};
+  const job = jobs[threadId];
+  if (!job || job.ownershipToken !== ownershipToken) return false;
+  const nextJob = { ...job, ...patch };
+  for (const [key, value] of Object.entries(nextJob)) {
+    if (value === undefined) delete nextJob[key];
+  }
+  state.jobs[JOB_KIND_STAGE1] = { ...jobs, [threadId]: nextJob };
+  writeMemoryState(root, state);
+  return true;
+}
+
+function getStage1JobForToken(root, threadId, ownershipToken) {
+  const job = readMemoryState(root).jobs[JOB_KIND_STAGE1]?.[threadId];
+  if (!job || job.ownershipToken !== ownershipToken) return undefined;
+  return job;
+}
+
+function enqueuePhase2Job(root, inputUpdatedAt) {
+  const state = readMemoryState(root);
+  const jobs = state.jobs[JOB_KIND_PHASE2] ?? {};
+  const existing = jobs[GLOBAL_PHASE2_JOB_KEY] ?? {};
+  const watermark = Math.max(Number(existing.inputWatermark ?? 0), Date.parse(inputUpdatedAt ?? 0) || Date.now());
+  state.jobs[JOB_KIND_PHASE2] = {
+    ...jobs,
+    [GLOBAL_PHASE2_JOB_KEY]: {
+      kind: JOB_KIND_PHASE2,
+      jobKey: GLOBAL_PHASE2_JOB_KEY,
+      status: existing.status === "running" ? existing.status : "queued",
+      retryRemaining: Number.isFinite(existing.retryRemaining) ? existing.retryRemaining : DEFAULT_RETRY_REMAINING,
+      inputWatermark: watermark,
+      lastSuccessWatermark: existing.lastSuccessWatermark,
+      queuedAt: new Date().toISOString(),
+      ...(existing.status === "running" ? {
+        workerId: existing.workerId,
+        ownershipToken: existing.ownershipToken,
+        startedAt: existing.startedAt,
+        leaseUntil: existing.leaseUntil,
+      } : {}),
+    },
+  };
+  writeMemoryState(root, state);
+}
+
+function phase2InputWatermark(root) {
+  return listStage1Outputs(root, { enabledOnly: true }).reduce((max, output) => {
+    const updatedAt = Date.parse(output.sourceUpdatedAt ?? output.generatedAt ?? 0) || 0;
+    return Math.max(max, updatedAt);
+  }, 0);
 }
 
 function stage1File(stage1Dir, threadId) {
@@ -723,6 +1115,35 @@ function threadIdFromMemoryPath(relative) {
   const file = path.basename(relative, ".md");
   const parts = file.split("-");
   return parts.length > 3 ? parts[3] : undefined;
+}
+
+function sessionSourceFromFile(sourcePath) {
+  if (!existsSync(sourcePath)) return undefined;
+  const stat = statSync(sourcePath);
+  if (!stat.isFile()) return undefined;
+  const header = readSessionHeader(sourcePath);
+  const threadId = sanitizeId(header.id ?? sessionIdFromPath(sourcePath));
+  if (!threadId) return undefined;
+  return {
+    threadId,
+    sourcePath: path.resolve(sourcePath),
+    sourceUpdatedAt: stat.mtime.toISOString(),
+    cwd: header.cwd ? path.resolve(header.cwd) : "",
+    createdAt: normalizeIso(header.timestamp),
+  };
+}
+
+function sessionSnapshotFromFile(sourcePath, options = {}) {
+  const source = sessionSourceFromFile(sourcePath);
+  if (!source) return undefined;
+  return {
+    sessionId: source.threadId,
+    sessionFile: source.sourcePath,
+    cwd: options.cwd ?? source.cwd,
+    header: readSessionHeader(source.sourcePath),
+    entries: readSessionEntries(source.sourcePath),
+    sourceUpdatedAt: source.sourceUpdatedAt,
+  };
 }
 
 function runtimeSessionSnapshot(runtime) {

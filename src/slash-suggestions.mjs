@@ -14,6 +14,8 @@ const COMMANDS = [
   { value: "/memory", label: "/memory", description: "memory overview and sources", kind: "command", submitOnEnter: true },
   { value: "/memory search", label: "/memory search", description: "search source-backed memory", kind: "command", submitOnEnter: false },
   { value: "/memory sources", label: "/memory sources", description: "list stage-1 memory sources", kind: "command", submitOnEnter: true },
+  { value: "/memory jobs", label: "/memory jobs", description: "show memory worker jobs", kind: "command", submitOnEnter: true },
+  { value: "/memory startup", label: "/memory startup", description: "scan sessions and prepare stage-1 inputs", kind: "command", submitOnEnter: true },
   { value: "/memory rebuild", label: "/memory rebuild", description: "rebuild memory inputs from stage-1 files", kind: "command", submitOnEnter: true },
   { value: "/auth", label: "/auth", description: "account, plan, and Codex limits", kind: "command", submitOnEnter: true },
   { value: "/account", label: "/account", description: "same as /auth", kind: "command", submitOnEnter: true },

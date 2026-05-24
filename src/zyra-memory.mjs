@@ -4,15 +4,23 @@ import {
   buildConsolidationInstructions,
   buildMemoryOverview as buildStoreMemoryOverview,
   buildMemoryPrompt,
+  claimGlobalPhase2Job,
+  claimStage1JobsForStartup,
   ensureMemoryWorkspace,
   forgetMemory,
   formatMemorySources,
   formatSearchResults,
   getMemoryPaths,
   listMemorySources,
+  markGlobalPhase2JobSucceeded,
+  markStage1JobSucceeded,
+  prepareClaimedStage1Inputs,
+  pruneStage1OutputsForRetention,
   readMemoryState,
   rebuildPhase2Inputs,
+  runMemoryStartup,
   searchMemory,
+  scanMemorySessionSources,
   upsertStage1Output,
 } from "./memory/zyra-memory-store.mjs";
 
@@ -85,6 +93,38 @@ export function rebuildZyraMemory(root) {
 
 export function upsertZyraStage1Memory(root, output) {
   return upsertStage1Output(root, output);
+}
+
+export function runZyraMemoryStartup(root, runtime, options = {}) {
+  return runMemoryStartup(root, runtime, options);
+}
+
+export function scanZyraMemorySessions(project, options = {}) {
+  return scanMemorySessionSources(project, options);
+}
+
+export function claimZyraStage1Jobs(root, params = {}) {
+  return claimStage1JobsForStartup(root, params);
+}
+
+export function prepareZyraStage1Inputs(root, claims, options = {}) {
+  return prepareClaimedStage1Inputs(root, claims, options);
+}
+
+export function completeZyraStage1Job(root, claim, output) {
+  return markStage1JobSucceeded(root, claim, output);
+}
+
+export function claimZyraPhase2Job(root, options = {}) {
+  return claimGlobalPhase2Job(root, options);
+}
+
+export function completeZyraPhase2Job(root, claim, selectedOutputs) {
+  return markGlobalPhase2JobSucceeded(root, claim, selectedOutputs);
+}
+
+export function pruneZyraMemory(root, options = {}) {
+  return pruneStage1OutputsForRetention(root, options);
 }
 
 function readText(file) {

@@ -76,6 +76,7 @@ export function renderCommandsBox(theme = fallbackTheme, terminalColumns = 100) 
     commandRow("/memory", "overview of staged source-backed memory", theme, commandWidth),
     commandRow("/memory search <q>", "search memory sources", theme, commandWidth),
     commandRow("/memory sources", "list stage-1 memory sources", theme, commandWidth),
+    commandRow("/memory jobs", "show memory worker jobs", theme, commandWidth),
     commandRow("/consolidate", "extract and consolidate staged memory", theme, commandWidth),
     "",
     commandRow("/new", "fresh chat, no previous messages", theme, commandWidth),
