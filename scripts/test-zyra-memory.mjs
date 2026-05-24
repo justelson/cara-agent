@@ -31,6 +31,7 @@ import {
   writeZyraPhase2WorkerOutput,
 } from "../src/zyra-memory.mjs";
 import { createMemoryController } from "../src/memory/zyra-memory-controller.mjs";
+import { readMemoryStateFile, writeMemoryStateFile } from "../src/memory/zyra-memory-state.mjs";
 import { runZyraMemoryConsolidation } from "../src/zyra-sdk.mjs";
 
 function withTempRoot(fn) {
@@ -97,6 +98,39 @@ function runMemoryStateRuntimeRegression() {
     assert.equal(state.jobs.memory_stage1["legacy-thread"].status, "running");
     assert.equal(state.jobs.memory_consolidate_global.global.status, "queued");
     assert.deepEqual(state.threadMemoryModes, {});
+  });
+}
+
+function runMemoryStatePendingTempRecoveryRegression() {
+  withTempRoot((root) => {
+    const memoryRoot = path.join(root, ".zyra", "memory");
+    const stateFile = path.join(memoryRoot, "state.json");
+    mkdirSync(memoryRoot, { recursive: true });
+
+    writeMemoryStateFile(stateFile, {
+      createdAt: "2026-05-24T00:00:00.000Z",
+      threadMemoryModes: { old: "disabled" },
+    });
+
+    const pendingState = {
+      version: 1,
+      createdAt: "2026-05-24T00:00:00.000Z",
+      updatedAt: "2026-05-24T00:01:00.000Z",
+      stage1Outputs: {},
+      jobs: {},
+      phase2: { selectedThreadIds: [] },
+      migrations: {},
+      threadMemoryModes: { recovered: "polluted" },
+    };
+    writeFileSync(
+      path.join(memoryRoot, ".state.json.999.recovery.tmp"),
+      `${JSON.stringify(pendingState, null, 2)}\n`,
+      "utf8",
+    );
+
+    const recovered = readMemoryStateFile(stateFile);
+    assert.equal(recovered.threadMemoryModes.recovered, "polluted");
+    assert.equal(readMemoryStateFile(stateFile).threadMemoryModes.recovered, "polluted");
   });
 }
 
@@ -834,6 +868,7 @@ function runPhase2LockAndRetentionRegression() {
 
 runWorkspaceBootstrapRegression();
 runMemoryStateRuntimeRegression();
+runMemoryStatePendingTempRecoveryRegression();
 runStageOutputRetrievalRegression();
 runConsolidationPromptRegression();
 runMemoryWorkerJsonRegression();

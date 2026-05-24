@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
@@ -7,6 +7,9 @@ export const JOB_KIND_STAGE1 = "memory_stage1";
 export const JOB_KIND_PHASE2 = "memory_consolidate_global";
 export const GLOBAL_PHASE2_JOB_KEY = "global";
 export const MEMORY_MODES = new Set(["enabled", "disabled", "polluted"]);
+
+const TRANSIENT_WRITE_ERROR_CODES = new Set(["EACCES", "EBUSY", "EPERM"]);
+const RENAME_RETRY_DELAYS_MS = [0, 15, 40, 90, 180, 320];
 
 export function createEmptyMemoryState() {
   const now = new Date().toISOString();
@@ -27,6 +30,8 @@ export function createEmptyMemoryState() {
 }
 
 export function readMemoryStateFile(file) {
+  const recovered = readPendingMemoryStateFile(file);
+  if (recovered) return recovered;
   if (!existsSync(file)) {
     return createEmptyMemoryState();
   }
@@ -44,8 +49,26 @@ export function writeMemoryStateFile(file, state) {
   const normalized = normalizeMemoryState(state);
   normalized.updatedAt = new Date().toISOString();
   const temp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${randomUUID()}.tmp`);
-  writeFileSync(temp, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
-  renameSync(temp, file);
+  const payload = `${JSON.stringify(normalized, null, 2)}\n`;
+  writeFileSync(temp, payload, "utf8");
+  try {
+    replaceFileWithRetry(temp, file);
+  } catch (error) {
+    if (!isTransientWriteError(error)) {
+      safeUnlink(temp);
+      throw error;
+    }
+    try {
+      writeFileSync(file, payload, "utf8");
+      safeUnlink(temp);
+    } catch (directError) {
+      if (!isTransientWriteError(directError)) {
+        safeUnlink(temp);
+        throw directError;
+      }
+      // Keep the temp state as a recovery candidate for the next read/startup.
+    }
+  }
   return normalized;
 }
 
@@ -439,4 +462,80 @@ function sessionIdFromPath(file) {
 function normalizeIso(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+function readPendingMemoryStateFile(file) {
+  const candidate = findNewestPendingStateTemp(file);
+  if (!candidate) return undefined;
+  const current = safeStat(file);
+  if (current && candidate.mtimeMs < current.mtimeMs) {
+    safeUnlink(candidate.file);
+    return undefined;
+  }
+  try {
+    const state = normalizeMemoryState(JSON.parse(readFileSync(candidate.file, "utf8")));
+    try {
+      replaceFileWithRetry(candidate.file, file);
+    } catch {
+      // Keep using the newest pending state even if Windows still has state.json locked.
+    }
+    return state;
+  } catch {
+    return undefined;
+  }
+}
+
+function findNewestPendingStateTemp(file) {
+  const dir = path.dirname(file);
+  if (!existsSync(dir)) return undefined;
+  const basename = path.basename(file);
+  const prefix = `.${basename}.`;
+  const candidates = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.startsWith(prefix) || !entry.name.endsWith(".tmp")) continue;
+    const candidateFile = path.join(dir, entry.name);
+    const stats = safeStat(candidateFile);
+    if (stats) candidates.push({ file: candidateFile, mtimeMs: stats.mtimeMs });
+  }
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return candidates[0];
+}
+
+function replaceFileWithRetry(source, target) {
+  let lastError;
+  for (const delay of RENAME_RETRY_DELAYS_MS) {
+    if (delay > 0) sleepSync(delay);
+    try {
+      renameSync(source, target);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isTransientWriteError(error)) throw error;
+    }
+  }
+  throw lastError;
+}
+
+function isTransientWriteError(error) {
+  return TRANSIENT_WRITE_ERROR_CODES.has(error?.code);
+}
+
+function safeStat(file) {
+  try {
+    return statSync(file);
+  } catch {
+    return undefined;
+  }
+}
+
+function safeUnlink(file) {
+  try {
+    unlinkSync(file);
+  } catch {
+    // Best effort cleanup only.
+  }
+}
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
