@@ -8,7 +8,7 @@ import { normalizeOpeningTheme, pickOpeningTheme } from "./banner.mjs";
 import { createMemoryController } from "./memory/zyra-memory-controller.mjs";
 import {
   buildConsolidationPrompt,
-  buildLayeredMemoryPrompt,
+  buildLayeredMemoryContext,
   buildRecommendedPrompts,
   buildZyraPhase2WorkerPrompt,
   buildZyraStage1WorkerPrompt,
@@ -1566,9 +1566,11 @@ function injectProjectMemory(session, project) {
 }
 
 function injectLayeredMemory(session, root, query = "") {
-  const memory = buildLayeredMemoryPrompt(root, { query });
-  if (!memory) return;
-  upsertSystemPromptBlock(session, ZYRA_LAYERED_MEMORY_MARKER, memory, [LEGACY_MARKERS.layeredMemory]);
+  const memory = buildLayeredMemoryContext(root, { query });
+  if (!memory.prompt) return;
+  session._zyraMemoryContext = memory;
+  session._zyraMemoryCitation = memory.citation;
+  upsertSystemPromptBlock(session, ZYRA_LAYERED_MEMORY_MARKER, memory.prompt, [LEGACY_MARKERS.layeredMemory]);
 }
 
 function injectActiveProfile(session, profile) {

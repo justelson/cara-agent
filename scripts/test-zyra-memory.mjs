@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   buildConsolidationPrompt,
+  buildLayeredMemoryContext,
   buildLayeredMemoryPrompt,
   buildMemoryOverview,
   claimZyraPhase2Job,
@@ -97,6 +98,11 @@ function runStageOutputRetrievalRegression() {
     assert.match(prompt, /retrieval-backed/);
     assert.match(prompt, /Retrieved memory snippets/);
     assert.match(prompt, /direct execution/);
+    const context = buildLayeredMemoryContext(root, { query: "direct execution" });
+    assert.match(context.prompt, /direct execution/);
+    assert.equal(context.citation.entries.some((entry) => entry.path === "memory_summary.md"), true);
+    assert.equal(context.citation.entries.some((entry) => entry.path.startsWith("rollout_summaries/")), true);
+    assert.equal(context.citation.rolloutIds.includes("thread-a"), true);
 
     assert.equal(forgetZyraMemory(root, "thread-a"), true);
     const sources = listZyraMemorySources(root);
@@ -346,6 +352,7 @@ function runMemoryControllerThreadModeRegression() {
     const memory = createMemoryController({ root, runtime });
 
     assert.equal(memory.threadMode().mode, "enabled");
+    assert.equal(memory.context("thread memory").citation.entries.length > 0, true);
     assert.match(memory.overview().join("\n"), /Current thread: mode-thread \(enabled\)/);
     assert.equal(memory.setThreadMode("disabled").mode, "disabled");
     assert.equal(memory.threadMode().mode, "disabled");

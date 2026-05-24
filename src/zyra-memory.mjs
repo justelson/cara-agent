@@ -5,6 +5,7 @@ import {
   buildPhase2WorkerPrompt,
   buildStage1WorkerPrompt,
   buildMemoryOverview as buildStoreMemoryOverview,
+  buildMemoryContext,
   buildMemoryPrompt,
   claimGlobalPhase2Job,
   claimStage1JobsForStartup,
@@ -61,6 +62,10 @@ export function buildMemoryOverview(root, options = {}) {
 
 export function buildLayeredMemoryPrompt(root, options = {}) {
   return buildMemoryPrompt(root, options);
+}
+
+export function buildLayeredMemoryContext(root, options = {}) {
+  return buildMemoryContext(root, options);
 }
 
 export function buildRecommendedPrompts(root, limit = 1) {

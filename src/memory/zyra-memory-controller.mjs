@@ -1,5 +1,6 @@
 import path from "node:path";
 import {
+  buildMemoryContext,
   buildMemoryOverview,
   forgetMemory,
   formatMemorySources,
@@ -20,6 +21,7 @@ export function createMemoryController({ root, runtime, consolidate } = {}) {
   return {
     root: memoryRoot,
     currentThreadId: () => currentThreadId(runtime),
+    context: (query = "", options = {}) => buildMemoryContext(memoryRoot, { query, ...options }),
     overview: () => buildMemoryOverview(memoryRoot, { threadId: currentThreadId(runtime) }),
     search: (query, options = {}) => formatSearchResults(searchMemory(memoryRoot, {
       queries: Array.isArray(query) ? query : [query],
