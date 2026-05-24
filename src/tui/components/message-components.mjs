@@ -149,8 +149,8 @@ export function summarizeToolArgs(args, context = {}) {
   const targetPath = firstStringValue(args, ["path", "filePath", "file_path", "targetPath", "target_file", "filename"]);
   const command = firstStringValue(args, ["command", "cmd"]);
   const isMutation = isFileMutationTool(toolName, args);
-  if (targetPath) rows.push(`path ${truncatePlain(targetPath, 116)}`);
-  if (command && !context.commandAsTitle) rows.push(`${toolName.includes("bash") ? "cmd " : "run "} ${truncatePlain(command, 116)}`);
+  if (targetPath) rows.push(`path ${targetPath}`);
+  if (command && !context.commandAsTitle) rows.push(`${toolName.includes("bash") ? "cmd " : "run "} ${command}`);
   if (isMutation) rows.push(...summarizeMutationArgs(toolName, args));
   if (rows.length > 0) return rows.slice(0, isMutation ? 14 : 7);
   const values = Object.entries(args).filter(([key, value]) => {
@@ -171,7 +171,7 @@ export function summarizeToolResult(result) {
   const text = content.map((item) => item?.text).filter(Boolean).join("\n").trim();
   if (!text) return [];
   const lines = text.split(/\r?\n/).filter(Boolean);
-  const visible = lines.slice(0, 4).map((line) => truncatePlain(line, 120));
+  const visible = lines.slice(0, 4);
   if (lines.length > visible.length) {
     visible.push(`... ${lines.length - visible.length} more output line${lines.length - visible.length === 1 ? "" : "s"}`);
   }
@@ -221,9 +221,11 @@ function summarizeMutationArgs(toolName, args = {}) {
       const editPath = firstStringValue(edit, ["path", "filePath", "file_path"]);
       const editOld = firstStringValue(edit, ["oldString", "old_string", "oldStr", "old_str", "from", "before"]);
       const editNew = firstStringValue(edit, ["newString", "new_string", "newStr", "new_str", "to", "after"]);
-      const label = editPath ? truncatePlain(editPath, 42) : "change";
-      rows.push({ kind: "diffMeta", text: `${label} ${formatTextSize(editOld)} -> ${formatTextSize(editNew)}` });
-      rows.push(...renderBeforeAfterDiff(editOld, editNew, 2));
+      if (editPath) rows.push({ kind: "diffMeta", text: truncatePlain(editPath, 96) });
+      if (editOld !== undefined || editNew !== undefined) {
+        rows.push({ kind: "diffMeta", text: `replace ${formatTextSize(editOld)} -> ${formatTextSize(editNew)}` });
+        rows.push(...renderBeforeAfterDiff(editOld, editNew, 2));
+      }
     }
     if (edits.length > 2) rows.push({ kind: "hint", text: `... ${edits.length - 2} more replacement${edits.length - 2 === 1 ? "" : "s"}` });
   }
@@ -474,10 +476,20 @@ function renderToolRow(row, theme = fallbackTheme, width = 100, surface = theme.
     }
     return lines;
   }
-  const rowContent = row.kind === "title"
-    ? `${prefix}${renderToolTitle(row, theme, contentWidth)}`
-    : `${prefix}${toolRowColor(row.kind, theme)}${truncatePlain(row.text ?? "", contentWidth)}`;
-  return `${surface}${padToVisibleWidth(rowContent, width)}${reset}`;
+  if (row.kind === "title") {
+    const rowContent = `${prefix}${renderToolTitle(row, theme, contentWidth)}`;
+    return `${surface}${padToVisibleWidth(rowContent, width)}${reset}`;
+  }
+
+  const color = toolRowColor(row.kind, theme);
+  const wrapped = wrapCodeRow(row.text ?? "", contentWidth);
+  const lines = [];
+  for (const [index, line] of wrapped.entries()) {
+    const linePrefix = index === 0 ? prefix : "  ";
+    const content = `${linePrefix}${color}${line}`;
+    lines.push(`${surface}${padToVisibleWidth(content, width)}${reset}`);
+  }
+  return lines;
 }
 
 function wrapCodeRow(text, width = 80) {
@@ -503,7 +515,7 @@ function toolRowMarker(row) {
   if (row.kind === "diffAdd") return "+";
   if (row.kind === "diffRemove") return "-";
   if (row.kind === "diffContext") return " ";
-  if (row.kind === "diffMeta" || row.kind === "args") return "|";
+  if (row.kind === "diffMeta" || row.kind === "args") return "";
   return "";
 }
 

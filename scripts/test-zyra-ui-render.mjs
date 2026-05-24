@@ -245,6 +245,44 @@ function runToolCommandMultilineRegression() {
   assert.equal(lines.every((line) => line.length <= 96), true);
 }
 
+function runToolOutputUsesFullBlockWidthRegression() {
+  const longOutput = "0123456789".repeat(12);
+  const lines = renderToolBlock({
+    state: "done",
+    toolName: "bash",
+    args: { command: "printf long-output" },
+    result: { content: [{ type: "text", text: longOutput }] },
+    durationMs: 1200,
+  }, undefined, 80).map(stripAnsi);
+
+  assert.equal(lines.some((line) => line.trim() === longOutput.slice(0, 78)), true, "result rows should use full block width, not the command status width");
+  assert.equal(lines.some((line) => line.trim() === longOutput.slice(78)), true, "long result rows should wrap instead of truncating");
+  assert.equal(lines.some((line) => line.includes("...")), false, "single-line result output should not be pre-truncated");
+  assert.equal(lines.every((line) => line.length <= 80), true);
+}
+
+function runEditToolPiLikeRegression() {
+  const lines = renderToolBlock({
+    state: "done",
+    toolName: "edit",
+    args: {
+      path: "C:/Users/elson/Downloads/anything-huge.md",
+      edits: [{}],
+    },
+    result: { content: [{ type: "text", text: "Successfully replaced 1 block(s) in C:/Users/elson/Downloads/anything-huge.md." }] },
+    durationMs: 100,
+  }, undefined, 110).map(stripAnsi);
+  const plain = lines.join("\n");
+
+  assert.match(plain, /> edit succeeded/);
+  assert.match(plain, /path C:\/Users\/elson\/Downloads\/anything-huge\.md/);
+  assert.match(plain, /edit 1 replacement/);
+  assert.doesNotMatch(plain, /\| path/);
+  assert.doesNotMatch(plain, /\| edit 1 replacement/);
+  assert.doesNotMatch(plain, /change 0b -> 0b/);
+  assert.match(plain, /0\.1s succeeded/);
+}
+
 function runToolCallThemeStylingRegression() {
   const theme = buildTerminalTheme({
     name: "tool-style-test",
@@ -1049,6 +1087,8 @@ runToolOutputStyleRegression();
 runPiLikeToolPresentationRegression();
 runToolCommandInlineRunningTimeRegression();
 runToolCommandMultilineRegression();
+runToolOutputUsesFullBlockWidthRegression();
+runEditToolPiLikeRegression();
 runToolCallThemeStylingRegression();
 runInteractiveAssistantComponentRegression();
 runInteractiveNoTurnEndDuplicateRegression();
