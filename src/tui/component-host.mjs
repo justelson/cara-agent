@@ -315,7 +315,9 @@ export class ZyraComponentHost {
 
     const viewportTop = Math.max(0, previous.length - this.height());
     if (firstChanged < viewportTop) {
-      this.fullRender(lines, { clear: true });
+      const visibleFirstChanged = firstChangedLine(previous, lines, viewportTop);
+      if (visibleFirstChanged === -1) return;
+      this.diffRenderTail(visibleFirstChanged, lines.slice(visibleFirstChanged), previous.length, lines.length);
       return;
     }
 
@@ -478,4 +480,12 @@ export const CaraComponentHost = ZyraComponentHost;
 function safeRender(component, width) {
   const lines = component.render?.(width);
   return Array.isArray(lines) ? lines : [];
+}
+
+function firstChangedLine(previous = [], next = [], start = 0) {
+  const max = Math.max(previous.length, next.length);
+  for (let index = Math.max(0, start); index < max; index += 1) {
+    if ((previous[index] ?? "") !== (next[index] ?? "")) return index;
+  }
+  return -1;
 }

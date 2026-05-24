@@ -132,7 +132,14 @@ export function renderToolBlock(toolState, theme = fallbackTheme, width = 100) {
   }
   const terminalWidth = Math.max(24, Number(width) || 100);
   const surface = toolSurfaceForState(state, resolvedTheme);
-  return ["", ...rows.map((row) => renderToolRow(row, resolvedTheme, terminalWidth, surface)), ""];
+  const innerBlank = renderToolBlankRow(terminalWidth, surface);
+  return [
+    "",
+    innerBlank,
+    ...rows.flatMap((row) => renderToolRow(row, resolvedTheme, terminalWidth, surface)),
+    innerBlank,
+    "",
+  ];
 }
 
 export function summarizeToolArgs(args, context = {}) {
@@ -435,25 +442,58 @@ function toolRowColor(kind, theme = fallbackTheme) {
   return theme.toolDetailFg ?? theme.toolFg ?? "\x1b[97m";
 }
 
+function renderToolBlankRow(width = 100, surface = "") {
+  return `${surface}${" ".repeat(width)}${reset}`;
+}
+
 function renderToolRow(row, theme = fallbackTheme, width = 100, surface = theme.toolBg) {
-  if (row.kind === "spacer") return `${surface}${" ".repeat(width)}${reset}`;
+  if (row.kind === "spacer") return renderToolBlankRow(width, surface);
   const marker = toolRowMarker(row);
   const markerColor = toolMarkerColor(row, theme);
   const prefix = toolRowPrefix(row, marker, markerColor);
   const contentWidth = Math.max(1, width - visibleWidth(prefix));
   if (row.kind === "command") {
     const rightText = String(row.rightText ?? "").trim();
-    const right = rightText ? `${toolStatusColor(row.state, theme)}${rightText}` : "";
+    const maxRightWidth = Math.max(8, Math.floor(contentWidth * 0.48));
+    const visibleRight = rightText ? truncatePlain(rightText, maxRightWidth) : "";
+    const right = visibleRight ? `${toolStatusColor(row.state, theme)}${visibleRight}` : "";
     const gap = right ? 2 : 0;
     const leftWidth = Math.max(1, contentWidth - visibleWidth(right) - gap);
-    const left = `${prefix}${toolRowColor(row.kind, theme)}${truncatePlain(row.text ?? "", leftWidth)}`;
-    const spaces = right ? " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(right))) : "";
-    return `${surface}${padToVisibleWidth(`${left}${spaces}${right}`, width)}${reset}`;
+    const color = toolRowColor(row.kind, theme);
+    const wrapped = wrapCodeRow(row.text ?? "", leftWidth);
+    const firstLeft = `${prefix}${color}${wrapped[0] ?? ""}`;
+    const spaces = right ? " ".repeat(Math.max(1, width - visibleWidth(firstLeft) - visibleWidth(right))) : "";
+    const lines = [`${surface}${padToVisibleWidth(`${firstLeft}${spaces}${right}`, width)}${reset}`];
+    const continuationPrefix = "  ";
+    const continuationWidth = Math.max(1, width - visibleWidth(continuationPrefix));
+    for (const rawLine of wrapped.slice(1)) {
+      for (const line of wrapCodeRow(rawLine, continuationWidth)) {
+        const content = `${continuationPrefix}${color}${line}`;
+        lines.push(`${surface}${padToVisibleWidth(content, width)}${reset}`);
+      }
+    }
+    return lines;
   }
   const rowContent = row.kind === "title"
     ? `${prefix}${renderToolTitle(row, theme, contentWidth)}`
     : `${prefix}${toolRowColor(row.kind, theme)}${truncatePlain(row.text ?? "", contentWidth)}`;
   return `${surface}${padToVisibleWidth(rowContent, width)}${reset}`;
+}
+
+function wrapCodeRow(text, width = 80) {
+  const max = Math.max(1, Number(width) || 1);
+  const lines = String(text ?? "").split(/\r?\n/);
+  const rows = [];
+  for (const line of lines) {
+    if (!line) {
+      rows.push("");
+      continue;
+    }
+    for (let index = 0; index < line.length; index += max) {
+      rows.push(line.slice(index, index + max));
+    }
+  }
+  return rows.length ? rows : [""];
 }
 
 function toolRowMarker(row) {

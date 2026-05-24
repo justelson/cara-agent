@@ -221,6 +221,30 @@ function runToolCommandInlineRunningTimeRegression() {
   assert.equal(lines.some((line) => line.includes("status started")), false);
 }
 
+function runToolCommandMultilineRegression() {
+  const startedAt = Date.now() - 1400;
+  const rendered = renderToolBlock({
+    state: "running",
+    toolName: "bash",
+    args: {
+      command: "python - <<'PY'\nfrom pathlib import Path\nfrom textwrap import dedent\nout = Path.home() / 'Downloads' / 'anything-huge.md'",
+      timeout: 20,
+    },
+    startedAt,
+  }, undefined, 96);
+  const lines = rendered.map(stripAnsi);
+  const meaningful = lines.filter((line) => line.trim().length > 0);
+
+  assert.equal(rendered.every((line) => !line.includes("\n")), true, "multiline commands should render as physical rows");
+  assert.match(meaningful[0], /^\s*\$ python - <<'PY'/);
+  assert.match(meaningful[0], /bash running 1\.[0-9]s \(timeout 20s\)\s*$/);
+  assert.equal(meaningful.some((line) => line.trim() === "from pathlib import Path"), true);
+  assert.equal(meaningful.some((line) => line.trim() === "from textwrap import dedent"), true);
+  assert.equal(lines[1].trim(), "", "tool block should include Pi-like top inner padding");
+  assert.equal(lines[lines.length - 2].trim(), "", "tool block should include Pi-like bottom inner padding");
+  assert.equal(lines.every((line) => line.length <= 96), true);
+}
+
 function runToolCallThemeStylingRegression() {
   const theme = buildTerminalTheme({
     name: "tool-style-test",
@@ -422,7 +446,11 @@ function runConsecutiveToolSpacingRegression() {
   assert.ok(firstEnd >= 0, "first tool output should render");
   assert.ok(firstFooter > firstEnd, "first tool footer should render after output");
   assert.ok(secondStart > firstEnd, "second tool should render after first tool");
-  assert.deepEqual(lines.slice(firstFooter + 1, secondStart), [""], "consecutive tool calls should have exactly one blank line between them");
+  const between = lines.slice(firstFooter + 1, secondStart);
+  assert.equal(between.length, 3, "consecutive tool calls should keep one outside gap plus inner padding");
+  assert.equal(between[0].trim(), "", "first tool should keep bottom inner padding");
+  assert.equal(between[1], "", "consecutive tool calls should have exactly one outside blank line between them");
+  assert.equal(between[2].trim(), "", "second tool should keep top inner padding");
 }
 
 function runAssistantAndToolInterleaveRegression() {
@@ -555,6 +583,13 @@ function runOverViewportRedrawRegression() {
   const tailWrite = writes.slice(beforeTailRender).join("");
   assert.match(tailWrite, /line 41/, "stream growth should render only the changed tail");
   assert.equal(tailWrite.includes("line 1"), false, "stream growth must not replay the full transcript");
+
+  const beforeOffscreenRender = writes.length;
+  const offscreenLines = Array.from({ length: 41 }, (_, index) => `line ${index + 1}`);
+  offscreenLines[0] = "line 1 changed";
+  component.setLines(offscreenLines);
+  host.invalidate({ force: true });
+  assert.equal(writes.length, beforeOffscreenRender, "off-viewport content changes must not replay stale snapshots into scrollback");
 }
 
 function runInteractiveHostUsesNormalScreenRegression() {
@@ -1013,6 +1048,7 @@ runUiEventCaptureRegression();
 runToolOutputStyleRegression();
 runPiLikeToolPresentationRegression();
 runToolCommandInlineRunningTimeRegression();
+runToolCommandMultilineRegression();
 runToolCallThemeStylingRegression();
 runInteractiveAssistantComponentRegression();
 runInteractiveNoTurnEndDuplicateRegression();
