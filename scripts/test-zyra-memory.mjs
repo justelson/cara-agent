@@ -23,6 +23,7 @@ import {
   scanZyraMemorySessions,
   searchZyraMemory,
   upsertZyraStage1Memory,
+  writeZyraPhase2WorkerOutput,
 } from "../src/zyra-memory.mjs";
 import { runZyraMemoryConsolidation } from "../src/zyra-sdk.mjs";
 
@@ -211,17 +212,161 @@ async function runMemoryWorkerConsolidationRegression() {
         return {
           memory_summary: "v1\n\n## Zyra Memory\n\n- `/consolidate` runs the internal memory worker path.",
           memory_handbook: "# Zyra Memory\n\nscope: Internal worker regression memory.\n\n- Consolidation is source-backed and not emitted as visible chat.",
+          skills: [{
+            name: "memory-worker-flow",
+            skill_md: [
+              "---",
+              "name: memory-worker-flow",
+              "description: Use when validating Zyra memory worker consolidation behavior.",
+              "---",
+              "# Memory Worker Flow",
+              "",
+              "Use this when checking that consolidation remains internal and source-backed.",
+            ].join("\n"),
+            files: [{
+              path: "templates/report.md",
+              content: "# Report\n\n- Keep memory worker output internal.",
+            }],
+          }],
+          delete_skills: [],
         };
       },
     });
 
     assert.equal(result.stage1.succeeded, 1);
     assert.equal(result.phase2.status, "succeeded");
+    assert.equal(result.phase2.skillsWritten, 1);
     assert.equal(listZyraMemorySources(root).some((source) => source.threadId === "current-worker-thread"), true);
     const memory = readZyraMemory(root);
     assert.match(memory.summary, /internal memory worker path/);
     assert.match(memory.handbook, /source-backed/);
+    assert.equal(existsSync(path.join(root, ".zyra", "memory", "skills", "memory-worker-flow", "SKILL.md")), true);
+    assert.equal(existsSync(path.join(root, ".zyra", "memory", "skills", "memory-worker-flow", "templates", "report.md")), true);
     assert.equal(existsSync(path.join(root, ".zyra", "memory", "phase2_workspace_diff.md")), false);
+  });
+}
+
+function runPhase2SkillArtifactRegression() {
+  withTempRoot((root) => {
+    ensureZyraMemory(root);
+    const skillDir = path.join(root, ".zyra", "memory", "skills", "demo-skill");
+    const write = writeZyraPhase2WorkerOutput(root, {
+      memory_summary: "v1\n\n## Zyra Memory\n\n- Demo skill trigger is available for retrieval.",
+      memory_handbook: "# Zyra Memory\n\n- Demo skill artifacts are managed by phase 2.",
+      skills: [{
+        name: "demo-skill",
+        skill_md: [
+          "---",
+          "name: demo-skill",
+          "description: Use when testing a demo skill trigger.",
+          "---",
+          "# Demo Skill",
+          "",
+          "Demo skill trigger.",
+        ].join("\n"),
+        files: [{ path: "examples/input.txt", content: "demo skill trigger" }],
+      }],
+    });
+
+    assert.equal(write.skillsWritten, 1);
+    assert.equal(existsSync(path.join(skillDir, "SKILL.md")), true);
+    assert.equal(existsSync(path.join(skillDir, "examples", "input.txt")), true);
+    const prompt = buildLayeredMemoryPrompt(root, { query: "demo skill trigger" });
+    assert.match(prompt, /demo skill trigger/);
+
+    const replaced = writeZyraPhase2WorkerOutput(root, {
+      memory_summary: "v1\n\n## Zyra Memory\n\n- Demo skill was replaced.",
+      memory_handbook: "# Zyra Memory\n\n- Demo skill replacement removed stale support files.",
+      skills: [{
+        name: "demo-skill",
+        skill_md: [
+          "---",
+          "name: demo-skill",
+          "description: Use when testing replacement of a demo skill.",
+          "---",
+          "# Demo Skill",
+          "",
+          "Replacement skill content.",
+        ].join("\n"),
+      }],
+    });
+    assert.equal(replaced.skillsWritten, 1);
+    assert.equal(existsSync(path.join(skillDir, "SKILL.md")), true);
+    assert.equal(existsSync(path.join(skillDir, "examples", "input.txt")), false);
+
+    const deleted = writeZyraPhase2WorkerOutput(root, {
+      memory_summary: "v1\n\n## Zyra Memory\n\n- Demo skill was deleted.",
+      memory_handbook: "# Zyra Memory\n\n- Demo skill deletion was applied.",
+      delete_skills: ["demo-skill"],
+    });
+    assert.equal(deleted.skillsDeleted, 1);
+    assert.equal(existsSync(skillDir), false);
+
+    assert.throws(
+      () => writeZyraPhase2WorkerOutput(root, {
+        memory_summary: "v1\n\n## Zyra Memory\n\n- Bad support path.",
+        memory_handbook: "# Zyra Memory\n\n- Bad support path.",
+        skills: [{
+          name: "bad-skill",
+          skill_md: "---\nname: bad-skill\ndescription: Bad path.\n---\n# Bad Skill",
+          files: [{ path: "../escape.md", content: "no" }],
+        }],
+      }),
+      /Invalid memory skill support file path/,
+    );
+  });
+}
+
+async function runMemoryWorkerRepairRegression() {
+  await withTempRootAsync(async (root) => {
+    ensureZyraMemory(root);
+    const sessionFile = path.join(root, ".zyra", "sessions", "repair.jsonl");
+    mkdirSync(path.dirname(sessionFile), { recursive: true });
+    writeFileSync(sessionFile, "", "utf8");
+    const runtime = {
+      root,
+      project: root,
+      session: {
+        sessionManager: {
+          getSessionId: () => "repair-worker-thread",
+          getSessionFile: () => sessionFile,
+          getCwd: () => root,
+          getEntries: () => [
+            {
+              type: "message",
+              timestamp: "2026-05-24T00:00:00.000Z",
+              message: { role: "user", content: "remember that broken worker JSON should be repaired" },
+            },
+          ],
+        },
+      },
+    };
+    let repairs = 0;
+
+    const result = await runZyraMemoryConsolidation(runtime, {
+      root,
+      skipStartup: true,
+      stage1Sampler: async () => "this is not json",
+      repairSampler: async ({ prompt, requiredKeys }) => {
+        repairs += 1;
+        assert.match(prompt, /Repair this internal Zyra memory worker output/);
+        assert.deepEqual(requiredKeys, ["rollout_summary", "rollout_slug", "raw_memory"]);
+        return JSON.stringify({
+          rollout_summary: "Broken worker JSON should be repaired.",
+          rollout_slug: "worker_json_repair",
+          raw_memory: "- Retry memory JSON repair before failing the stage-1 job.",
+        });
+      },
+      phase2Sampler: async () => ({
+        memory_summary: "v1\n\n## Zyra Memory\n\n- Memory worker JSON repair succeeded.",
+        memory_handbook: "# Zyra Memory\n\n- Broken worker JSON can be repaired before stage failure.",
+      }),
+    });
+
+    assert.equal(repairs, 1);
+    assert.equal(result.stage1.succeeded, 1);
+    assert.equal(result.phase2.status, "succeeded");
+    assert.match(readZyraMemory(root).summary, /JSON repair succeeded/);
   });
 }
 
@@ -482,6 +627,8 @@ runStageOutputRetrievalRegression();
 runConsolidationPromptRegression();
 runMemoryWorkerJsonRegression();
 await runMemoryWorkerConsolidationRegression();
+runPhase2SkillArtifactRegression();
+await runMemoryWorkerRepairRegression();
 await runMemoryWorkerNoOutputRegression();
 await runMemoryStartupWorkerSkipsCurrentRegression();
 runOverviewRegression();

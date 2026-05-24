@@ -925,9 +925,7 @@ async function runPhase2MemoryWorker(root, runtime, options) {
     }
 
     const rawOutput = await samplePhase2Memory(root, runtime, options);
-    const parsed = typeof rawOutput === "string"
-      ? parseZyraMemoryWorkerJson(rawOutput, ["memory_summary", "memory_handbook"])
-      : rawOutput;
+    const parsed = await parseMemoryWorkerOutput(rawOutput, ["memory_summary", "memory_handbook"], runtime, options);
     const write = writeZyraPhase2WorkerOutput(root, parsed);
     resetZyraMemoryWorkspaceBaseline(root);
     const completed = completeZyraPhase2Job(root, claim, write.selectedOutputs);
@@ -936,6 +934,8 @@ async function runPhase2MemoryWorker(root, runtime, options) {
       selected: write.selectedOutputs.length,
       summaryPath: write.summaryPath,
       handbookPath: write.handbookPath,
+      skillsWritten: write.skillsWritten,
+      skillsDeleted: write.skillsDeleted,
       workspaceDiffPath: workspace.workspaceDiffPath,
     };
   } catch (error) {
@@ -956,6 +956,36 @@ async function samplePhase2Memory(root, runtime, options) {
     model: options.phase2Model ?? options.model,
     source: "memory-phase2",
   });
+}
+
+async function parseMemoryWorkerOutput(rawOutput, requiredKeys, runtime, options = {}) {
+  if (typeof rawOutput !== "string") return rawOutput;
+  try {
+    return parseZyraMemoryWorkerJson(rawOutput, requiredKeys);
+  } catch (error) {
+    if (options.disableRepair) throw error;
+    const prompt = buildMemoryJsonRepairPrompt(rawOutput, requiredKeys, error);
+    const repaired = typeof options.repairSampler === "function"
+      ? await options.repairSampler({ prompt, rawOutput, requiredKeys, error })
+      : await runInternalZyraMemoryPrompt(runtime, prompt, {
+        model: options.repairModel ?? options.model,
+        source: "memory-json-repair",
+      });
+    return parseZyraMemoryWorkerJson(repaired, requiredKeys);
+  }
+}
+
+function buildMemoryJsonRepairPrompt(rawOutput, requiredKeys, error) {
+  return [
+    "Repair this internal Zyra memory worker output.",
+    "Return exactly one valid JSON object and nothing else.",
+    `Required keys: ${requiredKeys.join(", ")}`,
+    `Parser error: ${error instanceof Error ? error.message : String(error)}`,
+    "",
+    "<broken_output>",
+    String(rawOutput ?? "").slice(0, 60000),
+    "</broken_output>",
+  ].join("\n");
 }
 
 async function runInternalZyraMemoryPrompt(runtime, prompt, options = {}) {
@@ -1224,9 +1254,12 @@ export async function runZyraMemoryConsolidation(runtime, options = {}) {
 
     try {
       const rawOutput = await sampleStage1Memory(prep, runtime, options);
-      const parsed = typeof rawOutput === "string"
-        ? parseZyraMemoryWorkerJson(rawOutput, ["rollout_summary", "rollout_slug", "raw_memory"])
-        : rawOutput;
+      const parsed = await parseMemoryWorkerOutput(
+        rawOutput,
+        ["rollout_summary", "rollout_slug", "raw_memory"],
+        runtime,
+        options,
+      );
       const normalized = normalizeZyraStage1WorkerOutput(parsed);
       if (normalized.isEmpty) {
         if (completeZyraStage1JobNoOutput(root, claim)) {
