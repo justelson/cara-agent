@@ -25,8 +25,11 @@ import {
   normalizeZyraStage1WorkerOutput,
   parseZyraMemoryWorkerJson,
   prepareZyraCurrentStage1Job,
+  prepareZyraMemoryWorkspace,
+  prepareZyraPhase2Workspace,
   readZyraMemory,
   rebuildZyraMemory,
+  resetZyraMemoryWorkspaceBaseline,
   runZyraMemoryStartup,
   writeZyraPhase2WorkerOutput,
 } from "./zyra-memory.mjs";
@@ -912,17 +915,28 @@ async function runPhase2MemoryWorker(root, runtime, options) {
   }
 
   try {
+    const workspace = prepareZyraPhase2Workspace(root, options.phase2WorkspaceOptions);
+    if (!workspace.diff.hasChanges) {
+      const completed = completeZyraPhase2Job(root, claim, workspace.selectedOutputs);
+      return {
+        status: completed ? "succeeded_no_workspace_changes" : "failed",
+        selected: workspace.selectedOutputs.length,
+      };
+    }
+
     const rawOutput = await samplePhase2Memory(root, runtime, options);
     const parsed = typeof rawOutput === "string"
       ? parseZyraMemoryWorkerJson(rawOutput, ["memory_summary", "memory_handbook"])
       : rawOutput;
     const write = writeZyraPhase2WorkerOutput(root, parsed);
+    resetZyraMemoryWorkspaceBaseline(root);
     const completed = completeZyraPhase2Job(root, claim, write.selectedOutputs);
     return {
       status: completed ? "succeeded" : "failed",
       selected: write.selectedOutputs.length,
       summaryPath: write.summaryPath,
       handbookPath: write.handbookPath,
+      workspaceDiffPath: workspace.workspaceDiffPath,
     };
   } catch (error) {
     failZyraPhase2Job(root, claim, error);
@@ -1167,6 +1181,7 @@ export function buildZyraConsolidationPrompt(runtime) {
 export async function runZyraMemoryConsolidation(runtime, options = {}) {
   const root = path.resolve(options.root ?? defaults.root);
   ensureZyraMemory(root);
+  prepareZyraMemoryWorkspace(root);
   const previousPrepared = preparedJobsFromStartup(runtime.memoryStartup);
   const startup = options.skipStartup
     ? { claimed: 0, prepared: [], pruned: [] }

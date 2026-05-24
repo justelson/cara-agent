@@ -206,6 +206,8 @@ async function runMemoryWorkerConsolidationRegression() {
       phase2Sampler: async ({ prompt }) => {
         assert.match(prompt, /raw_memories\.md/);
         assert.match(prompt, /internal worker/);
+        assert.match(prompt, /phase2_workspace_diff\.md/);
+        assert.match(prompt, /\+.*internal worker/);
         return {
           memory_summary: "v1\n\n## Zyra Memory\n\n- `/consolidate` runs the internal memory worker path.",
           memory_handbook: "# Zyra Memory\n\nscope: Internal worker regression memory.\n\n- Consolidation is source-backed and not emitted as visible chat.",
@@ -219,6 +221,7 @@ async function runMemoryWorkerConsolidationRegression() {
     const memory = readZyraMemory(root);
     assert.match(memory.summary, /internal memory worker path/);
     assert.match(memory.handbook, /source-backed/);
+    assert.equal(existsSync(path.join(root, ".zyra", "memory", "phase2_workspace_diff.md")), false);
   });
 }
 
@@ -257,7 +260,7 @@ async function runMemoryWorkerNoOutputRegression() {
     });
 
     assert.equal(result.stage1.noOutput, 1);
-    assert.equal(result.phase2.status, "skipped_no_inputs");
+    assert.equal(result.phase2.status, "succeeded_no_workspace_changes");
     assert.equal(listZyraMemorySources(root).some((source) => source.threadId === "empty-worker-thread"), false);
   });
 }

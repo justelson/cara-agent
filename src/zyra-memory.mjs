@@ -21,11 +21,14 @@ import {
   markStage1JobSucceededNoOutput,
   normalizeStage1WorkerOutput,
   parseMemoryWorkerJson,
+  prepareMemoryWorkspace,
+  preparePhase2WorkspaceForWorker,
   prepareClaimedStage1Inputs,
   prepareCurrentSessionStage1Job,
   pruneStage1OutputsForRetention,
   readMemoryState,
   rebuildPhase2Inputs,
+  resetMemoryWorkspaceBaseline,
   runMemoryStartup,
   searchMemory,
   scanMemorySessionSources,
@@ -97,6 +100,18 @@ export function normalizeZyraStage1WorkerOutput(output) {
 
 export function writeZyraPhase2WorkerOutput(root, output) {
   return writePhase2WorkerOutput(root, output);
+}
+
+export function prepareZyraMemoryWorkspace(root) {
+  return prepareMemoryWorkspace(root);
+}
+
+export function prepareZyraPhase2Workspace(root, options = {}) {
+  return preparePhase2WorkspaceForWorker(root, options);
+}
+
+export function resetZyraMemoryWorkspaceBaseline(root) {
+  return resetMemoryWorkspaceBaseline(root);
 }
 
 export function searchZyraMemory(root, query, options = {}) {
