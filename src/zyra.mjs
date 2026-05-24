@@ -6,7 +6,6 @@ import path from "node:path";
 import {
   buildInspectPrompt,
   buildZyraAuthAccountStatus,
-  buildZyraConsolidationPrompt,
   buildZyraMemoryJobs,
   buildZyraMemorySearch,
   buildZyraMemorySources,
@@ -22,6 +21,7 @@ import {
   listZyraSessions,
   rebuildZyraMemorySources,
   reloadZyraRuntime,
+  runZyraMemoryConsolidation,
   runZyraRuntimeMemoryStartup,
   runZyraPrompt,
   runZyraPrintPrompt,
@@ -515,7 +515,13 @@ async function handleSlash(runtime, ui, input, controls = {}) {
     return true;
   }
   if (command === "/consolidate") {
-    await runZyraPrompt(runtime, buildZyraConsolidationPrompt(runtime));
+    ui.beginProgress("Consolidating memory");
+    try {
+      const result = await runZyraMemoryConsolidation(runtime);
+      ui.info(formatMemoryConsolidationResult(result));
+    } finally {
+      ui.endProgress();
+    }
     return true;
   }
   if (command === "/chat") {
@@ -588,6 +594,20 @@ function restartZyraProcess(runtime, options = {}) {
     process.exit(1);
   }
   process.exit(result.status ?? 0);
+}
+
+function formatMemoryConsolidationResult(result) {
+  const stage1 = result.stage1 ?? {};
+  const phase2 = result.phase2 ?? {};
+  const parts = [
+    `stage-1 ${stage1.succeeded ?? 0} saved`,
+    `${stage1.noOutput ?? 0} no-op`,
+    `${stage1.failed ?? 0} failed`,
+    `phase-2 ${phase2.status ?? "unknown"}`,
+  ];
+  if (phase2.selected !== undefined) parts.push(`${phase2.selected} selected`);
+  if (phase2.error) parts.push(phase2.error);
+  return `Memory consolidated: ${parts.join(", ")}.`;
 }
 
 function isExitInput(input) {

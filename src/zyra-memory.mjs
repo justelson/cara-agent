@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   buildConsolidationInstructions,
+  buildPhase2WorkerPrompt,
+  buildStage1WorkerPrompt,
   buildMemoryOverview as buildStoreMemoryOverview,
   buildMemoryPrompt,
   claimGlobalPhase2Job,
@@ -12,9 +14,15 @@ import {
   formatSearchResults,
   getMemoryPaths,
   listMemorySources,
+  markGlobalPhase2JobFailed,
   markGlobalPhase2JobSucceeded,
+  markStage1JobFailed,
   markStage1JobSucceeded,
+  markStage1JobSucceededNoOutput,
+  normalizeStage1WorkerOutput,
+  parseMemoryWorkerJson,
   prepareClaimedStage1Inputs,
+  prepareCurrentSessionStage1Job,
   pruneStage1OutputsForRetention,
   readMemoryState,
   rebuildPhase2Inputs,
@@ -22,6 +30,7 @@ import {
   searchMemory,
   scanMemorySessionSources,
   upsertStage1Output,
+  writePhase2WorkerOutput,
 } from "./memory/zyra-memory-store.mjs";
 
 export function ensureZyraMemory(root) {
@@ -64,6 +73,30 @@ export function buildRecommendedPrompts(root, limit = 1) {
 
 export function buildConsolidationPrompt(runtime, globalAgentFiles = []) {
   return buildConsolidationInstructions(runtime.root, runtime, globalAgentFiles);
+}
+
+export function prepareZyraCurrentStage1Job(root, runtime, options = {}) {
+  return prepareCurrentSessionStage1Job(root, runtime, options);
+}
+
+export function buildZyraStage1WorkerPrompt(prep) {
+  return buildStage1WorkerPrompt(prep);
+}
+
+export function buildZyraPhase2WorkerPrompt(root, options = {}) {
+  return buildPhase2WorkerPrompt(root, options);
+}
+
+export function parseZyraMemoryWorkerJson(text, requiredKeys = []) {
+  return parseMemoryWorkerJson(text, requiredKeys);
+}
+
+export function normalizeZyraStage1WorkerOutput(output) {
+  return normalizeStage1WorkerOutput(output);
+}
+
+export function writeZyraPhase2WorkerOutput(root, output) {
+  return writePhase2WorkerOutput(root, output);
 }
 
 export function searchZyraMemory(root, query, options = {}) {
@@ -115,12 +148,24 @@ export function completeZyraStage1Job(root, claim, output) {
   return markStage1JobSucceeded(root, claim, output);
 }
 
+export function completeZyraStage1JobNoOutput(root, claim) {
+  return markStage1JobSucceededNoOutput(root, claim);
+}
+
+export function failZyraStage1Job(root, claim, error, options = {}) {
+  return markStage1JobFailed(root, claim, error, options);
+}
+
 export function claimZyraPhase2Job(root, options = {}) {
   return claimGlobalPhase2Job(root, options);
 }
 
 export function completeZyraPhase2Job(root, claim, selectedOutputs) {
   return markGlobalPhase2JobSucceeded(root, claim, selectedOutputs);
+}
+
+export function failZyraPhase2Job(root, claim, error, options = {}) {
+  return markGlobalPhase2JobFailed(root, claim, error, options);
 }
 
 export function pruneZyraMemory(root, options = {}) {

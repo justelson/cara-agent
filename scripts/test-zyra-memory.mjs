@@ -14,6 +14,7 @@ import {
   ensureZyraMemory,
   forgetZyraMemory,
   listZyraMemorySources,
+  parseZyraMemoryWorkerJson,
   prepareZyraStage1Inputs,
   pruneZyraMemory,
   readZyraMemory,
@@ -23,11 +24,21 @@ import {
   searchZyraMemory,
   upsertZyraStage1Memory,
 } from "../src/zyra-memory.mjs";
+import { runZyraMemoryConsolidation } from "../src/zyra-sdk.mjs";
 
 function withTempRoot(fn) {
   const root = mkdtempSync(path.join(os.tmpdir(), "zyra-memory-"));
   try {
     return fn(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function withTempRootAsync(fn) {
+  const root = mkdtempSync(path.join(os.tmpdir(), "zyra-memory-"));
+  try {
+    return await fn(root);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -129,6 +140,125 @@ function runConsolidationPromptRegression() {
     assert.match(prompt, /Phase 1 - extract this session/);
     assert.match(prompt, /Phase 2 - consolidate selected inputs/);
     assert.match(prompt, /memory_summary\.md/);
+  });
+}
+
+function runMemoryWorkerJsonRegression() {
+  const parsed = parseZyraMemoryWorkerJson([
+    "```json",
+    '{"rollout_summary":"Saved","rollout_slug":"saved","raw_memory":"- durable"}',
+    "```",
+  ].join("\n"), ["rollout_summary", "rollout_slug", "raw_memory"]);
+  assert.equal(parsed.rollout_summary, "Saved");
+  assert.throws(
+    () => parseZyraMemoryWorkerJson('{"rollout_summary":"Saved"}', ["rollout_summary", "raw_memory"]),
+    /missing key: raw_memory/,
+  );
+}
+
+async function runMemoryWorkerConsolidationRegression() {
+  await withTempRootAsync(async (root) => {
+    ensureZyraMemory(root);
+    const sessionFile = path.join(root, ".zyra", "sessions", "current.jsonl");
+    mkdirSync(path.dirname(sessionFile), { recursive: true });
+    writeFileSync(sessionFile, "", "utf8");
+    const runtime = {
+      root,
+      project: root,
+      session: {
+        sessionManager: {
+          getSessionId: () => "current-worker-thread",
+          getSessionFile: () => sessionFile,
+          getCwd: () => root,
+          getEntries: () => [
+            {
+              type: "message",
+              timestamp: "2026-05-24T00:00:00.000Z",
+              message: { role: "user", content: "remember that consolidation must be internal, not visible chat" },
+            },
+            {
+              type: "message",
+              timestamp: "2026-05-24T00:00:01.000Z",
+              message: { role: "assistant", content: [{ type: "text", text: "I will run the memory worker internally." }] },
+            },
+          ],
+        },
+      },
+    };
+
+    const result = await runZyraMemoryConsolidation(runtime, {
+      root,
+      skipStartup: true,
+      stage1Sampler: async ({ prep, prompt }) => {
+        assert.equal(prep.threadId, "current-worker-thread");
+        assert.match(prompt, /internal Memory Writing Agent: Phase 1/);
+        assert.match(prompt, /consolidation must be internal/);
+        return [
+          "```json",
+          JSON.stringify({
+            rollout_summary: "Zyra memory consolidation should run as an internal worker, not a visible chat prompt.",
+            rollout_slug: "internal_memory_worker",
+            raw_memory: "- For Zyra memory work, `/consolidate` should run an internal worker and keep visible chat clean.",
+          }),
+          "```",
+        ].join("\n");
+      },
+      phase2Sampler: async ({ prompt }) => {
+        assert.match(prompt, /raw_memories\.md/);
+        assert.match(prompt, /internal worker/);
+        return {
+          memory_summary: "v1\n\n## Zyra Memory\n\n- `/consolidate` runs the internal memory worker path.",
+          memory_handbook: "# Zyra Memory\n\nscope: Internal worker regression memory.\n\n- Consolidation is source-backed and not emitted as visible chat.",
+        };
+      },
+    });
+
+    assert.equal(result.stage1.succeeded, 1);
+    assert.equal(result.phase2.status, "succeeded");
+    assert.equal(listZyraMemorySources(root).some((source) => source.threadId === "current-worker-thread"), true);
+    const memory = readZyraMemory(root);
+    assert.match(memory.summary, /internal memory worker path/);
+    assert.match(memory.handbook, /source-backed/);
+  });
+}
+
+async function runMemoryWorkerNoOutputRegression() {
+  await withTempRootAsync(async (root) => {
+    ensureZyraMemory(root);
+    const sessionFile = path.join(root, ".zyra", "sessions", "empty.jsonl");
+    mkdirSync(path.dirname(sessionFile), { recursive: true });
+    writeFileSync(sessionFile, "", "utf8");
+    const runtime = {
+      root,
+      project: root,
+      session: {
+        sessionManager: {
+          getSessionId: () => "empty-worker-thread",
+          getSessionFile: () => sessionFile,
+          getCwd: () => root,
+          getEntries: () => [
+            {
+              type: "message",
+              timestamp: "2026-05-24T00:00:00.000Z",
+              message: { role: "user", content: "what time is it" },
+            },
+          ],
+        },
+      },
+    };
+
+    const result = await runZyraMemoryConsolidation(runtime, {
+      root,
+      skipStartup: true,
+      stage1Sampler: async () => ({ rollout_summary: "", rollout_slug: "", raw_memory: "" }),
+      phase2Sampler: async () => {
+        throw new Error("phase 2 should not run without inputs");
+      },
+    });
+
+    assert.equal(result.stage1.noOutput, 1);
+    assert.equal(result.phase2.status, "skipped_no_inputs");
+    assert.equal(listZyraMemorySources(root).some((source) => source.threadId === "empty-worker-thread"), false);
   });
 }
 
@@ -258,6 +388,19 @@ function runPhase2LockAndRetentionRegression() {
     assert.equal(completeZyraPhase2Job(root, claim), true);
     assert.equal(claimZyraPhase2Job(root, { now: "2026-05-24T00:01:00.000Z" }).status, "skipped_cooldown");
 
+    upsertZyraStage1Memory(root, {
+      threadId: "fresh-thread",
+      sourcePath: path.join(root, "fresh.jsonl"),
+      sourceUpdatedAt: "2026-05-24T00:02:00.000Z",
+      cwd: root,
+      rolloutSummary: "Fresh input should bypass the old cooldown.",
+      rawMemory: "- fresh",
+    });
+    assert.equal(
+      claimZyraPhase2Job(root, { now: "2026-05-24T00:02:01.000Z", cooldownSeconds: 3600 }).status,
+      "claimed",
+    );
+
     state = readZyraMemory(root).state;
     state.phase2.selectedThreadIds = ["keep-thread"];
     writeFileSync(path.join(root, ".zyra", "memory", "state.json"), `${JSON.stringify(state, null, 2)}\n`, "utf8");
@@ -270,6 +413,9 @@ function runPhase2LockAndRetentionRegression() {
 runWorkspaceBootstrapRegression();
 runStageOutputRetrievalRegression();
 runConsolidationPromptRegression();
+runMemoryWorkerJsonRegression();
+await runMemoryWorkerConsolidationRegression();
+await runMemoryWorkerNoOutputRegression();
 runOverviewRegression();
 runSessionScanAndJobClaimRegression();
 runPhase2LockAndRetentionRegression();
