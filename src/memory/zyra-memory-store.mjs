@@ -29,6 +29,7 @@ import {
   renderSkillsForPrompt,
 } from "./zyra-memory-read.mjs";
 import { createMemorySessionPath } from "./zyra-memory-sessions.mjs";
+import { createMemoryStage1Path } from "./zyra-memory-stage1.mjs";
 import { createMemoryWorkspacePath } from "./zyra-memory-workspace.mjs";
 
 export { STATE_VERSION } from "./zyra-memory-state.mjs";
@@ -206,6 +207,23 @@ function memorySessionPath() {
   });
 }
 
+function memoryStage1Path() {
+  return createMemoryStage1Path({
+    ensureMemoryWorkspace,
+    memoryState,
+    scanMemorySessionSources,
+    readStage1Output,
+    upsertStage1Output,
+    prepareClaimedStage1Inputs,
+    pruneStage1OutputsForRetention,
+    getMemoryPaths,
+    stage1File,
+    defaultStage1LeaseSeconds: DEFAULT_STAGE1_LEASE_SECONDS,
+    defaultRetryRemaining: DEFAULT_RETRY_REMAINING,
+    defaultRetryDelaySeconds: DEFAULT_RETRY_DELAY_SECONDS,
+  });
+}
+
 function memoryWorkspacePath() {
   return createMemoryWorkspacePath({
     ensureMemoryWorkspace,
@@ -309,50 +327,11 @@ export function scanMemorySessionSources(project, options = {}) {
 }
 
 export function claimStage1JobsForStartup(root, params = {}) {
-  ensureMemoryWorkspace(root);
-  const nowMs = Date.parse(params.now ?? new Date().toISOString());
-  const scanLimit = clamp(params.scanLimit ?? 50, 1, 500);
-  const maxClaimed = clamp(params.maxClaimed ?? 3, 0, 50);
-  if (maxClaimed === 0) return [];
-
-  const maxAgeMs = Math.max(0, Number(params.maxAgeDays ?? 45)) * 24 * 60 * 60 * 1000;
-  const minIdleMs = Math.max(0, Number(params.minIdleMinutes ?? 15)) * 60 * 1000;
-  const currentSessionFile = params.currentSessionFile ? path.resolve(params.currentSessionFile) : "";
-  const sources = (params.sources ?? scanMemorySessionSources(params.project ?? root, { sessionsDir: params.sessionsDir }))
-    .slice(0, scanLimit);
-  const claims = [];
-
-  for (const source of sources) {
-    if (claims.length >= maxClaimed) break;
-    const sourcePath = path.resolve(source.sourcePath);
-    if (currentSessionFile && sourcePath.toLowerCase() === currentSessionFile.toLowerCase()) continue;
-    const sourceUpdatedAtMs = Date.parse(source.sourceUpdatedAt);
-    if (!Number.isFinite(sourceUpdatedAtMs)) continue;
-    if (maxAgeMs && nowMs - sourceUpdatedAtMs > maxAgeMs) continue;
-    if (minIdleMs && nowMs - sourceUpdatedAtMs < minIdleMs) continue;
-
-    const threadId = sanitizeId(source.threadId);
-    if (memoryState(root).getThreadMemoryMode(threadId) !== "enabled") continue;
-    const existing = readStage1Output(root, threadId);
-    if (existing && Date.parse(existing.sourceUpdatedAt) >= sourceUpdatedAtMs) continue;
-
-    const claim = tryClaimStage1Job(root, source, {
-      now: new Date(nowMs).toISOString(),
-      leaseSeconds: params.leaseSeconds ?? DEFAULT_STAGE1_LEASE_SECONDS,
-    });
-    if (claim.status === "claimed") claims.push(claim);
-  }
-
-  return claims;
+  return memoryStage1Path().claimStage1JobsForStartup(root, params);
 }
 
 export function tryClaimStage1Job(root, source, options = {}) {
-  ensureMemoryWorkspace(root);
-  return memoryState(root).tryClaimStage1Job(source, {
-    ...options,
-    leaseSeconds: options.leaseSeconds ?? DEFAULT_STAGE1_LEASE_SECONDS,
-    retryRemaining: DEFAULT_RETRY_REMAINING,
-  });
+  return memoryStage1Path().tryClaimStage1Job(root, source, options);
 }
 
 export function prepareClaimedStage1Inputs(root, claims, options = {}) {
@@ -360,54 +339,15 @@ export function prepareClaimedStage1Inputs(root, claims, options = {}) {
 }
 
 export function markStage1JobSucceeded(root, claim, output) {
-  const job = getStage1JobForToken(root, claim.threadId, claim.ownershipToken);
-  if (!job) return false;
-  const record = upsertStage1Output(root, {
-    ...output,
-    threadId: claim.threadId,
-    sourcePath: output.sourcePath ?? job.sourcePath,
-    sourceUpdatedAt: output.sourceUpdatedAt ?? job.sourceUpdatedAt,
-    cwd: output.cwd ?? job.cwd,
-  });
-  updateStage1Job(root, claim.threadId, claim.ownershipToken, {
-    status: "succeeded",
-    finishedAt: new Date().toISOString(),
-    leaseUntil: undefined,
-    outputPath: stage1File(getMemoryPaths(root).stage1, claim.threadId),
-    lastError: undefined,
-  });
-  enqueuePhase2Job(root, record.sourceUpdatedAt);
-  return true;
+  return memoryStage1Path().markStage1JobSucceeded(root, claim, output);
 }
 
 export function markStage1JobSucceededNoOutput(root, claim) {
-  const job = getStage1JobForToken(root, claim.threadId, claim.ownershipToken);
-  if (!job) return false;
-  updateStage1Job(root, claim.threadId, claim.ownershipToken, {
-    status: "succeeded_no_output",
-    finishedAt: new Date().toISOString(),
-    leaseUntil: undefined,
-    lastError: undefined,
-  });
-  return true;
+  return memoryStage1Path().markStage1JobSucceededNoOutput(root, claim);
 }
 
 export function markStage1JobFailed(root, claim, error, options = {}) {
-  const job = getStage1JobForToken(root, claim.threadId, claim.ownershipToken);
-  if (!job) return false;
-  const nowMs = Date.now();
-  const retryRemaining = Math.max(0, Number(job.retryRemaining ?? DEFAULT_RETRY_REMAINING) - 1);
-  updateStage1Job(root, claim.threadId, claim.ownershipToken, {
-    status: "failed",
-    finishedAt: new Date(nowMs).toISOString(),
-    leaseUntil: undefined,
-    retryRemaining,
-    retryAt: retryRemaining > 0
-      ? new Date(nowMs + Math.max(1, Number(options.retryDelaySeconds ?? DEFAULT_RETRY_DELAY_SECONDS)) * 1000).toISOString()
-      : undefined,
-    lastError: error instanceof Error ? error.message : String(error ?? "stage-1 failed"),
-  });
-  return true;
+  return memoryStage1Path().markStage1JobFailed(root, claim, error, options);
 }
 
 export function claimGlobalPhase2Job(root, options = {}) {
@@ -455,31 +395,7 @@ export function pruneStage1OutputsForRetention(root, options = {}) {
 }
 
 export function runMemoryStartup(root, runtime, options = {}) {
-  const project = options.project ?? runtime?.project ?? root;
-  const currentSessionFile = runtime?.session?.sessionManager?.getSessionFile?.();
-  const claims = claimStage1JobsForStartup(root, {
-    project,
-    sessionsDir: options.sessionsDir ?? runtime?.sessions,
-    currentSessionFile,
-    scanLimit: options.scanLimit,
-    maxClaimed: options.maxClaimed,
-    maxAgeDays: options.maxAgeDays,
-    minIdleMinutes: options.minIdleMinutes,
-    leaseSeconds: options.leaseSeconds,
-  });
-  const prepared = prepareClaimedStage1Inputs(root, claims, options);
-  const pruned = pruneStage1OutputsForRetention(root, {
-    maxUnusedDays: options.maxUnusedDays ?? 60,
-    limit: options.pruneLimit ?? 100,
-  });
-  return {
-    claimed: claims.length,
-    prepared: prepared.length,
-    pruned: pruned.length,
-    claims,
-    preparedJobs: prepared,
-    prunedThreadIds: pruned,
-  };
+  return memoryStage1Path().runMemoryStartup(root, runtime, options);
 }
 
 export function rebuildPhase2Inputs(root, options = {}) {
@@ -884,15 +800,7 @@ function assertInsidePath(parent, target, label) {
 }
 
 function updateStage1Job(root, threadId, ownershipToken, patch) {
-  return memoryState(root).updateStage1Job(threadId, ownershipToken, patch);
-}
-
-function getStage1JobForToken(root, threadId, ownershipToken) {
-  return memoryState(root).getStage1JobForToken(threadId, ownershipToken);
-}
-
-function enqueuePhase2Job(root, inputUpdatedAt) {
-  memoryState(root).enqueueGlobalPhase2(inputUpdatedAt);
+  return memoryStage1Path().updateStage1Job(root, threadId, ownershipToken, patch);
 }
 
 function stage1File(stage1Dir, threadId) {
@@ -929,10 +837,6 @@ function compactTimestamp(value) {
 function normalizeIso(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, Number(value) || min));
 }
 
 function safeReadDir(dir) {
