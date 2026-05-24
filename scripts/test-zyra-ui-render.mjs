@@ -7,8 +7,9 @@ import { getSlashSuggestions } from "../src/slash-suggestions.mjs";
 import { AssistantMessageLifecycle, createZyraUi, mergeAssistantTextDelta } from "../src/zyra-ui.mjs";
 import { setZyraTheme } from "../src/zyra-sdk.mjs";
 import { renderStatusLine } from "../src/status-line.mjs";
+import { buildTerminalTheme } from "../src/terminal-theme.mjs";
 import { renderAccountStatusBox, renderCodexUsageBox, renderStatusBox } from "../src/terminal-blocks.mjs";
-import { ZyraComponentHost, EditorComponent, StaticLinesComponent } from "../src/tui/zyra-tui.mjs";
+import { ZyraComponentHost, EditorComponent, StaticLinesComponent, renderToolBlock } from "../src/tui/zyra-tui.mjs";
 import { stripAnsi } from "../src/tui/render-utils.mjs";
 
 function assistantMessage(text = "", id = "assistant-1") {
@@ -184,8 +185,75 @@ function runToolOutputStyleRegression() {
 
   assert.equal(captured.includes("summary ..."), false);
   assert.equal(captured.includes("╭"), false, "tool output should not use the accidental new rounded-box style");
-  assert.match(captured, /bash succeeded/);
-  assert.match(captured, /git remote -v/);
+  assert.match(stripAnsi(captured), /bash succeeded/);
+  assert.match(stripAnsi(captured), /git remote -v/);
+}
+
+function runToolCallThemeStylingRegression() {
+  const theme = buildTerminalTheme({
+    name: "tool-style-test",
+    colors: {
+      primary: "#654321",
+      success: "#00aa00",
+      warning: "#aa7700",
+      error: "#aa0000",
+      muted: "#555555",
+      accent: "#abcdef",
+      toolCall: {
+        background: "#010203",
+        successBackground: "#020304",
+        errorBackground: "#030405",
+        rail: "#123456",
+        marker: "#234567",
+        name: "#654321",
+        running: "#abcdef",
+        success: "#00ff00",
+        error: "#ff0000",
+        args: "#777777",
+        output: "#888888",
+      },
+    },
+  });
+
+  const running = renderToolBlock({
+    state: "running",
+    toolName: "bash",
+    args: { command: "git status --short" },
+    partialResult: { content: [{ type: "text", text: "running" }] },
+  }, theme, 80).join("\n");
+
+  assert.match(running, /\x1b\[48;2;1;2;3m/, "running tool rows should use theme toolCall.background");
+  assert.match(running, /\x1b\[38;2;35;69;103m>/, "tool marker should use theme toolCall.marker");
+  assert.match(running, /\x1b\[1m\x1b\[38;2;101;67;33mbash/, "tool name should use theme toolCall.name");
+  assert.match(running, /\x1b\[38;2;171;205;239mrunning/, "running state should use theme toolCall.running");
+  assert.match(running, /\x1b\[38;2;119;119;119mgit status --short/, "tool args should use theme toolCall.args");
+  assert.match(running, /\x1b\[38;2;136;136;136mrunning/, "tool output should use theme toolCall.output");
+  assert.equal(
+    running.split("\n").every((line) => stripAnsi(line).length <= 80),
+    true,
+    "styled tool rows must still fit the render width",
+  );
+
+  const done = renderToolBlock({ state: "done", toolName: "read" }, theme, 80).join("\n");
+  const failed = renderToolBlock({ state: "error", toolName: "write", isError: true }, theme, 80).join("\n");
+  assert.match(done, /\x1b\[48;2;2;3;4m/, "done tool rows should use theme toolCall.successBackground");
+  assert.match(done, /\x1b\[38;2;0;255;0msucceeded/, "done state should use theme toolCall.success");
+  assert.match(failed, /\x1b\[48;2;3;4;5m/, "failed tool rows should use theme toolCall.errorBackground");
+  assert.match(failed, /\x1b\[38;2;255;0;0mfailed/, "error state should use theme toolCall.error");
+
+  const fallbackTheme = buildTerminalTheme({
+    name: "old-theme-shape",
+    colors: {
+      primary: "#123123",
+      success: "#00aa00",
+      warning: "#aa7700",
+      error: "#aa0000",
+      muted: "#555555",
+      accent: "#abcdef",
+    },
+  });
+  const fallback = renderToolBlock({ state: "running", toolName: "bash" }, fallbackTheme, 80).join("\n");
+  assert.match(fallback, /\x1b\[/, "older themes without toolCall should still get derived tool styling");
 }
 
 function runInteractiveAssistantComponentRegression() {
@@ -674,6 +742,7 @@ runMergeHelperRegression();
 runSnapshotDeltaPollutionRegression();
 runUiEventCaptureRegression();
 runToolOutputStyleRegression();
+runToolCallThemeStylingRegression();
 runInteractiveAssistantComponentRegression();
 runInteractiveNoTurnEndDuplicateRegression();
 runInteractiveToolComponentRegression();

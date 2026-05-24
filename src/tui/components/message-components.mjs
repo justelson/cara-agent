@@ -2,6 +2,8 @@ import { renderMarkdown } from "../../pi-markdown.mjs";
 import { buildTerminalTheme } from "../../terminal-theme.mjs";
 import {
   bold,
+  normalIntensity,
+  padToVisibleWidth,
   reset,
   splitDisplayLines,
   trimOuterBlankLines,
@@ -101,24 +103,22 @@ export class ActivityComponent {
 }
 
 export function renderToolBlock(toolState, theme = fallbackTheme, width = 100) {
+  const resolvedTheme = buildTerminalTheme(theme);
   const isError = toolState.isError || toolState.state === "error";
   const isDone = toolState.state === "done";
   const stateLabel = isError ? "failed" : isDone ? "succeeded" : "running";
+  const state = isError ? "error" : isDone ? "done" : "running";
   const title = toolState.toolName ?? "tool";
-  const rows = [{ kind: "title", text: `${title} ${stateLabel}` }];
+  const rows = [{ kind: "title", title, state, stateLabel }];
   const args = summarizeToolArgs(toolState.args ?? toolState.arguments);
-  if (args) rows.push(...args.flatMap((line) => splitDisplayLines(line)).map((line) => ({ kind: "detail", text: `  ${line}` })));
+  if (args) rows.push(...args.flatMap((line) => splitDisplayLines(line)).map((line) => ({ kind: "args", text: line })));
   const outputText = summarizeToolResult(toolState.result ?? toolState.partialResult);
   if (outputText) {
-    rows.push(...outputText.flatMap((line) => splitDisplayLines(line)).map((line) => ({ kind: "detail", text: `  ${line}` })));
+    rows.push(...outputText.flatMap((line) => splitDisplayLines(line)).map((line) => ({ kind: "output", text: line })));
   }
-  const terminalWidth = Math.max(24, width - 2);
-  const line = (row = "") => {
-    const item = typeof row === "string" ? { kind: "detail", text: row } : row;
-    const color = toolRowColor(item.kind, theme);
-    return `${color}${truncatePlain(item.text ?? "", terminalWidth)}${reset}`;
-  };
-  return ["", ...rows.map((row) => line(row)), ""];
+  const terminalWidth = Math.max(24, Number(width) || 100);
+  const surface = toolSurfaceForState(state, resolvedTheme);
+  return ["", ...rows.map((row) => renderToolRow(row, resolvedTheme, terminalWidth, surface)), ""];
 }
 
 export function summarizeToolArgs(args) {
@@ -157,6 +157,41 @@ function formatToolValue(value) {
 
 function toolRowColor(kind, theme = fallbackTheme) {
   if (kind === "title") return theme.toolTitleFg ?? theme.toolFg ?? `${bold}\x1b[97m`;
+  if (kind === "args") return theme.toolArgsFg ?? theme.toolDetailFg ?? theme.toolFg ?? "\x1b[97m";
+  if (kind === "output") return theme.toolOutputFg ?? theme.toolDetailFg ?? theme.toolFg ?? "\x1b[97m";
   if (kind === "hint") return theme.toolHintFg ?? theme.toolFg ?? "\x1b[38;5;245m";
   return theme.toolDetailFg ?? theme.toolFg ?? "\x1b[97m";
+}
+
+function renderToolRow(row, theme = fallbackTheme, width = 100, surface = theme.toolBg) {
+  const marker = row.kind === "title" && row.state === "error" ? "!" : row.kind === "title" ? ">" : "|";
+  const markerColor = row.kind === "title" ? theme.toolMarkerFg : theme.toolRailFg;
+  const prefix = `  ${markerColor}${marker} `;
+  const contentWidth = Math.max(1, width - 4);
+  const rowContent = row.kind === "title"
+    ? `${prefix}${renderToolTitle(row, theme, contentWidth)}`
+    : `${prefix}${toolRowColor(row.kind, theme)}${truncatePlain(row.text ?? "", contentWidth)}`;
+  return `${surface}${padToVisibleWidth(rowContent, width)}${reset}`;
+}
+
+function toolSurfaceForState(state, theme = fallbackTheme) {
+  if (state === "error") return theme.toolErrorBg || theme.toolBg || "";
+  if (state === "done") return theme.toolSuccessBg || theme.toolBg || "";
+  return theme.toolBg || "";
+}
+
+function renderToolTitle(row, theme = fallbackTheme, width = 80) {
+  const title = String(row.title ?? "tool").replace(/\s+/g, " ").trim() || "tool";
+  const stateLabel = String(row.stateLabel ?? "running");
+  const fullTitle = `${title} ${stateLabel}`;
+  if (fullTitle.length > width) {
+    return `${theme.toolTitleFg}${truncatePlain(fullTitle, width)}${normalIntensity}`;
+  }
+  return `${theme.toolNameFg}${title}${normalIntensity} ${toolStateColor(row.state, theme)}${stateLabel}`;
+}
+
+function toolStateColor(state, theme = fallbackTheme) {
+  if (state === "error") return theme.toolStateErrorFg ?? theme.error;
+  if (state === "done") return theme.toolStateSuccessFg ?? theme.success;
+  return theme.toolStateRunningFg ?? theme.warning;
 }

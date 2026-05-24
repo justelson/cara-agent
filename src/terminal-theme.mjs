@@ -112,6 +112,7 @@ export function buildTerminalTheme(themeInput = {}) {
   if (themeInput?.[terminalThemeMarker]) return themeInput;
   const definition = normalizeThemeDefinition(themeInput) ?? getDefaultTheme();
   const colors = { ...getDefaultTheme().colors, ...(definition.colors ?? {}) };
+  const toolCall = resolveToolCallColors(colors);
   return {
     [terminalThemeMarker]: true,
     name: definition.name ?? DEFAULT_TERMINAL_THEME,
@@ -127,13 +128,22 @@ export function buildTerminalTheme(themeInput = {}) {
     editorBorder: fg(colors.editorBorder ?? colors.primary),
     userBg: bg(colors.userBg),
     userFg: textStyle(colors.userFg, { bold: true }),
-    toolBg: bg(colors.toolBg),
-    toolSuccessBg: bg(colors.toolSuccessBg),
-    toolErrorBg: bg(colors.toolErrorBg),
-    toolFg: fg(colors.toolFg),
-    toolTitleFg: textStyle(colors.toolTitleFg, { bold: true }),
-    toolDetailFg: fg(colors.toolDetailFg),
-    toolHintFg: fg(colors.toolHintFg),
+    toolBg: bg(toolCall.background),
+    toolSuccessBg: bg(toolCall.successBackground),
+    toolErrorBg: bg(toolCall.errorBackground),
+    toolFg: fg(toolCall.text),
+    toolTitleFg: textStyle(toolCall.title, { bold: true }),
+    toolDetailFg: fg(toolCall.detail),
+    toolHintFg: fg(toolCall.hint),
+    toolRailFg: fg(toolCall.rail),
+    toolMarkerFg: fg(toolCall.marker),
+    toolNameFg: textStyle(toolCall.name, { bold: true }),
+    toolStateRunningFg: fg(toolCall.running),
+    toolStateSuccessFg: fg(toolCall.success),
+    toolStateErrorFg: fg(toolCall.error),
+    toolArgsFg: fg(toolCall.args),
+    toolOutputFg: fg(toolCall.output),
+    toolDimFg: fg(toolCall.muted),
     reset,
   };
 }
@@ -249,8 +259,50 @@ function themeFromUiCatalog(theme) {
       toolTitleFg: tokens.text,
       toolDetailFg: tokens.textDark,
       toolHintFg: tokens.textSecondary,
+      toolCall: {
+        background: mixHex(tokens.card, tokens.primary, 0.06),
+        successBackground: mixHex(tokens.card, tokens.secondary, 0.12),
+        errorBackground: mixHex(tokens.card, "#ff6b6b", 0.12),
+        rail: tokens.borderSecondary ?? tokens.border,
+        marker: tokens.primary,
+        name: tokens.primary,
+        running: tokens.primary,
+        success: tokens.secondary ?? tokens.primary,
+        error: "#ff6b6b",
+        args: tokens.textDarker ?? tokens.textSecondary,
+        output: tokens.textDark ?? tokens.text,
+        detail: tokens.textDarker ?? tokens.textSecondary,
+        hint: tokens.textSecondary ?? tokens.textDarker,
+        muted: tokens.textMuted ?? tokens.textSecondary,
+      },
     },
   };
+}
+
+function resolveToolCallColors(colors = {}) {
+  const toolCall = colors.toolCall && typeof colors.toolCall === "object" ? colors.toolCall : {};
+  return {
+    background: pickColor(toolCall.background, colors.toolBg, colors.accent, colors.userBg),
+    successBackground: pickColor(toolCall.successBackground, colors.toolSuccessBg, colors.toolBg, colors.accent),
+    errorBackground: pickColor(toolCall.errorBackground, colors.toolErrorBg, colors.toolBg, colors.accent),
+    text: pickColor(toolCall.text, colors.toolFg, colors.text, colors.userFg, colors.primary),
+    title: pickColor(toolCall.title, colors.toolTitleFg, toolCall.name, colors.toolFg, colors.primary),
+    detail: pickColor(toolCall.detail, colors.toolDetailFg, colors.muted, colors.toolFg),
+    hint: pickColor(toolCall.hint, colors.toolHintFg, colors.muted, colors.toolFg),
+    rail: pickColor(toolCall.rail, colors.toolRailFg, colors.editorBorder, colors.muted, colors.primary),
+    marker: pickColor(toolCall.marker, colors.toolMarkerFg, colors.accent, colors.primary),
+    name: pickColor(toolCall.name, colors.toolNameFg, colors.primary, colors.toolTitleFg, colors.toolFg),
+    running: pickColor(toolCall.running, colors.toolRunningFg, colors.warning, colors.primary),
+    success: pickColor(toolCall.success, colors.toolSuccessFg, colors.success, colors.primary),
+    error: pickColor(toolCall.error, colors.toolErrorFg, colors.error, colors.warning),
+    args: pickColor(toolCall.args, colors.toolArgsFg, colors.toolDetailFg, colors.muted, colors.toolFg),
+    output: pickColor(toolCall.output, colors.toolOutputFg, colors.toolDetailFg, colors.toolFg, colors.muted),
+    muted: pickColor(toolCall.muted, colors.toolDimFg, colors.toolHintFg, colors.muted, colors.toolFg),
+  };
+}
+
+function pickColor(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "");
 }
 
 function loadThemeDirectory(dir, source) {
