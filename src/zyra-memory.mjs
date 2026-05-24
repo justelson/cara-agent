@@ -30,6 +30,7 @@ import {
   pruneStage1OutputsForRetention,
   readMemoryState,
   rebuildPhase2Inputs,
+  resetMemoryWorkspace,
   resetMemoryWorkspaceBaseline,
   runMemoryStartup,
   searchMemory,
@@ -119,6 +120,10 @@ export function prepareZyraPhase2Workspace(root, options = {}) {
 
 export function resetZyraMemoryWorkspaceBaseline(root) {
   return resetMemoryWorkspaceBaseline(root);
+}
+
+export function resetZyraMemory(root, options = {}) {
+  return resetMemoryWorkspace(root, options);
 }
 
 export function searchZyraMemory(root, query, options = {}) {

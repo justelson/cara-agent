@@ -475,7 +475,12 @@ async function handleSlash(runtime, ui, input, controls = {}) {
       ui.info(memory.rebuild().message);
       return true;
     }
-    ui.info("Usage: /memory, /memory search <query>, /memory sources, /memory jobs, /memory startup, /memory mode [enabled|disabled|polluted], /memory forget <source-id>");
+    if (memoryAction === "reset" || memoryAction === "drop") {
+      const preserveAdHoc = !memoryRest.some((item) => ["--all", "--include-ad-hoc"].includes(item.toLowerCase()));
+      ui.info(memory.reset({ preserveAdHoc }).message);
+      return true;
+    }
+    ui.info("Usage: /memory, /memory search <query>, /memory sources, /memory jobs, /memory startup, /memory mode [enabled|disabled|polluted], /memory forget <source-id>, /memory reset");
     return true;
   }
   if (command === "/auth" || command === "/account") {

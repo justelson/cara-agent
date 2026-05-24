@@ -20,6 +20,7 @@ const COMMANDS = [
   { value: "/memory enable", label: "/memory enable", description: "enable memory for this thread", kind: "command", submitOnEnter: true },
   { value: "/memory disable", label: "/memory disable", description: "disable memory for this thread", kind: "command", submitOnEnter: true },
   { value: "/memory rebuild", label: "/memory rebuild", description: "rebuild memory inputs from stage-1 files", kind: "command", submitOnEnter: true },
+  { value: "/memory reset", label: "/memory reset", description: "clear generated memory, keep notes", kind: "command", submitOnEnter: true },
   { value: "/auth", label: "/auth", description: "account, plan, and Codex limits", kind: "command", submitOnEnter: true },
   { value: "/account", label: "/account", description: "same as /auth", kind: "command", submitOnEnter: true },
   { value: "/codexusage", label: "/codexusage", description: "show Codex quota usage", kind: "command", submitOnEnter: true },

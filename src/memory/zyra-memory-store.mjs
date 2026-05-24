@@ -567,6 +567,53 @@ export function resetMemoryWorkspaceBaseline(root) {
   return commitMemoryBaseline(paths.root, "memory baseline");
 }
 
+export function resetMemoryWorkspace(root, options = {}) {
+  ensureMemoryWorkspace(root);
+  const paths = getMemoryPaths(root);
+  const previousState = readMemoryState(root);
+  const preserveAdHoc = options.preserveAdHoc !== false;
+  const cleared = [];
+
+  for (const dir of [paths.stage1, paths.stage1Inputs, paths.rolloutSummaries, paths.skills]) {
+    resetDirectoryInside(paths.root, dir, "memory reset");
+    cleared.push(path.relative(paths.root, dir).replaceAll("\\", "/"));
+  }
+
+  if (!preserveAdHoc) {
+    resetDirectoryInside(paths.root, paths.adHocNotes, "memory reset ad-hoc notes");
+    cleared.push(path.relative(paths.root, paths.adHocNotes).replaceAll("\\", "/"));
+  }
+
+  for (const file of LEGACY_LAYER_FILES) {
+    const target = path.join(paths.root, file);
+    assertInsidePath(paths.root, target, "legacy memory reset");
+    rmSync(target, { force: true });
+  }
+
+  writeFileSync(paths.summary, DEFAULT_SUMMARY, "utf8");
+  writeFileSync(paths.handbook, DEFAULT_HANDBOOK, "utf8");
+  writeFileSync(paths.rawMemories, "# Raw Memories\n\nNo raw memories yet.\n", "utf8");
+  writeFileSync(paths.workspaceGitignore, MEMORY_WORKSPACE_GITIGNORE, "utf8");
+  writeFileSync(paths.adHocInstructions, AD_HOC_INSTRUCTIONS, "utf8");
+  removeMemoryWorkspaceDiff(root);
+
+  const nextState = createEmptyState();
+  nextState.createdAt = previousState.createdAt ?? nextState.createdAt;
+  nextState.threadMemoryModes = { ...(previousState.threadMemoryModes ?? {}) };
+  nextState.migrations = { ...(previousState.migrations ?? {}) };
+  writeMemoryState(root, nextState);
+
+  rebuildPhase2Inputs(root);
+  const baselineCommitted = resetMemoryWorkspaceBaseline(root);
+  return {
+    memoryRoot: paths.root,
+    cleared,
+    preserveAdHoc,
+    preservedThreadModes: Object.keys(nextState.threadMemoryModes).length,
+    baselineCommitted,
+  };
+}
+
 export function removeMemoryWorkspaceDiff(root) {
   rmSync(getMemoryPaths(root).workspaceDiff, { force: true });
 }
@@ -753,6 +800,7 @@ export function buildMemoryOverview(root, options = {}) {
   lines.push("  /memory startup         scan old sessions and prepare stage-1 inputs");
   lines.push("  /memory mode [mode]     show or set current thread memory mode");
   lines.push("  /memory forget <id>     disable one memory source");
+  lines.push("  /memory reset           clear generated memory; keep ad-hoc notes");
   lines.push("  /consolidate            extract and consolidate the current session");
   return lines;
 }
@@ -1442,12 +1490,23 @@ function normalizeStoredMemoryMode(value) {
   return MEMORY_MODES.has(value) ? value : "enabled";
 }
 
+function resetDirectoryInside(parent, target, label) {
+  const parentPath = path.resolve(parent);
+  const targetPath = path.resolve(target);
+  if (targetPath === parentPath) {
+    throw new Error(`Refusing ${label} at memory root: ${target}`);
+  }
+  assertInsidePath(parentPath, targetPath, label);
+  rmSync(targetPath, { recursive: true, force: true });
+  mkdirSync(targetPath, { recursive: true });
+}
+
 function assertInsidePath(parent, target, label) {
   const parentPath = path.resolve(parent);
   const targetPath = path.resolve(target);
   const relative = path.relative(parentPath, targetPath);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error(`Refusing ${label} outside memory skills directory: ${target}`);
+    throw new Error(`Refusing ${label} outside expected parent: ${target}`);
   }
 }
 

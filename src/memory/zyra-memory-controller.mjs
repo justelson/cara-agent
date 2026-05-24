@@ -9,6 +9,7 @@ import {
   listMemorySources,
   readMemoryState,
   rebuildPhase2Inputs,
+  resetMemoryWorkspace,
   runMemoryStartup,
   searchMemory,
   setThreadMemoryMode,
@@ -40,6 +41,10 @@ export function createMemoryController({ root, runtime, consolidate } = {}) {
     rebuild: () => {
       const outputs = rebuildPhase2Inputs(memoryRoot);
       return { outputs, message: formatMemoryRebuildResult(outputs) };
+    },
+    reset: (options = {}) => {
+      const result = resetMemoryWorkspace(memoryRoot, options);
+      return { result, message: formatMemoryResetResult(result) };
     },
     forgetSource: (threadId) => {
       const ok = forgetMemory(memoryRoot, threadId);
@@ -106,6 +111,17 @@ export function formatMemoryStartupResult(result) {
 
 export function formatMemoryRebuildResult(outputs) {
   return `Memory inputs rebuilt: ${outputs.length} source${outputs.length === 1 ? "" : "s"}.`;
+}
+
+export function formatMemoryResetResult(result) {
+  const parts = [
+    `Memory reset: ${result.cleared?.length ?? 0} generated area${result.cleared?.length === 1 ? "" : "s"} cleared`,
+    result.preserveAdHoc ? "ad-hoc notes kept" : "ad-hoc notes cleared",
+  ];
+  if (result.preservedThreadModes) {
+    parts.push(`${result.preservedThreadModes} thread mode${result.preservedThreadModes === 1 ? "" : "s"} kept`);
+  }
+  return `${parts.join(", ")}.`;
 }
 
 export function formatConsolidationResult(result) {

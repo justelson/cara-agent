@@ -16,11 +16,13 @@ import {
   forgetZyraMemory,
   listZyraMemorySources,
   parseZyraMemoryWorkerJson,
+  prepareZyraPhase2Workspace,
   prepareZyraCurrentStage1Job,
   prepareZyraStage1Inputs,
   pruneZyraMemory,
   readZyraMemory,
   rebuildZyraMemory,
+  resetZyraMemory,
   runZyraMemoryStartup,
   scanZyraMemorySessions,
   searchZyraMemory,
@@ -363,6 +365,86 @@ function runMemoryControllerThreadModeRegression() {
   });
 }
 
+function runMemoryResetRegression() {
+  withTempRoot((root) => {
+    ensureZyraMemory(root);
+    const memoryRoot = path.join(root, ".zyra", "memory");
+    const sessionFile = path.join(root, ".zyra", "sessions", "reset.jsonl");
+    mkdirSync(path.dirname(sessionFile), { recursive: true });
+    writeFileSync(sessionFile, "", "utf8");
+    const runtime = {
+      root,
+      project: root,
+      session: {
+        sessionManager: {
+          getSessionId: () => "reset-thread",
+          getSessionFile: () => sessionFile,
+          getCwd: () => root,
+          getEntries: () => [],
+        },
+      },
+    };
+    const memory = createMemoryController({ root, runtime });
+    memory.setThreadMode("disabled");
+
+    upsertZyraStage1Memory(root, {
+      threadId: "reset-source",
+      sourcePath: path.join(root, "reset.jsonl"),
+      sourceUpdatedAt: "2026-05-24T00:00:00.000Z",
+      cwd: root,
+      rolloutSlug: "reset_source",
+      rolloutSummary: "Reset should clear this generated source.",
+      rawMemory: "- Generated memory should be wiped by reset.",
+    });
+    writeZyraPhase2WorkerOutput(root, {
+      memory_summary: "v1\n\n## Zyra Memory\n\n- Reset test durable summary should disappear.",
+      memory_handbook: "# Zyra Memory\n\n- Reset test handbook should disappear.",
+      skills: [{
+        name: "reset-skill",
+        skill_md: [
+          "---",
+          "name: reset-skill",
+          "description: Reset test skill.",
+          "---",
+          "# Reset Skill",
+          "",
+          "Reset test skill content.",
+        ].join("\n"),
+      }],
+    });
+    const adHocNote = path.join(memoryRoot, "extensions", "ad_hoc", "notes", "keep.md");
+    mkdirSync(path.dirname(adHocNote), { recursive: true });
+    writeFileSync(adHocNote, "# Keep\n\n- User-authored ad-hoc note.\n", "utf8");
+    writeFileSync(path.join(memoryRoot, "phase2_workspace_diff.md"), "stale diff\n", "utf8");
+    writeFileSync(path.join(memoryRoot, "cara-profile.md"), "legacy memory layer\n", "utf8");
+
+    const firstReset = resetZyraMemory(root);
+    assert.equal(firstReset.preserveAdHoc, true);
+    assert.equal(firstReset.cleared.includes("stage1"), true);
+    assert.equal(listZyraMemorySources(root).length, 0);
+    assert.equal(existsSync(path.join(memoryRoot, "stage1", "reset-source.json")), false);
+    assert.equal(existsSync(path.join(memoryRoot, "rollout_summaries")), true);
+    assert.equal(existsSync(path.join(memoryRoot, "skills", "reset-skill")), false);
+    assert.equal(existsSync(path.join(memoryRoot, "phase2_workspace_diff.md")), false);
+    assert.equal(existsSync(path.join(memoryRoot, "cara-profile.md")), false);
+    assert.equal(existsSync(adHocNote), true);
+    assert.equal(memory.threadMode().mode, "disabled");
+
+    const after = readZyraMemory(root);
+    assert.match(after.summary, /no consolidated evidence/);
+    assert.doesNotMatch(after.summary, /Reset test durable summary/);
+    assert.doesNotMatch(after.handbook, /Reset test handbook/);
+    assert.match(after.rawMemories, /No raw memories yet/);
+    assert.equal(buildLayeredMemoryContext(root, { query: "reset source" }).citation.rolloutIds.length, 0);
+    assert.equal(prepareZyraPhase2Workspace(root).diff.hasChanges, false);
+
+    const secondReset = memory.reset({ preserveAdHoc: false });
+    assert.match(secondReset.message, /ad-hoc notes cleared/);
+    assert.equal(existsSync(adHocNote), false);
+    assert.equal(memory.threadMode().mode, "disabled");
+  });
+}
+
 async function runMemoryWorkerRepairRegression() {
   await withTempRootAsync(async (root) => {
     ensureZyraMemory(root);
@@ -675,6 +757,7 @@ runMemoryWorkerJsonRegression();
 await runMemoryWorkerConsolidationRegression();
 runPhase2SkillArtifactRegression();
 runMemoryControllerThreadModeRegression();
+runMemoryResetRegression();
 await runMemoryWorkerRepairRegression();
 await runMemoryWorkerNoOutputRegression();
 await runMemoryStartupWorkerSkipsCurrentRegression();
