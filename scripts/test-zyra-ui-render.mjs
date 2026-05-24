@@ -185,7 +185,8 @@ function runToolOutputStyleRegression() {
 
   assert.equal(captured.includes("summary ..."), false);
   assert.equal(captured.includes("╭"), false, "tool output should not use the accidental new rounded-box style");
-  assert.match(stripAnsi(captured), /bash succeeded/);
+  assert.match(stripAnsi(captured), /succeeded/);
+  assert.doesNotMatch(stripAnsi(captured), /bash succeeded/);
   assert.match(stripAnsi(captured), /git remote -v/);
 }
 
@@ -200,9 +201,24 @@ function runPiLikeToolPresentationRegression() {
   const meaningful = lines.filter((line) => line.trim().length > 0);
 
   assert.match(meaningful[0], /^\s*\$ printf/);
+  assert.match(meaningful[0], /19\.6s succeeded\s*$/);
   assert.equal(meaningful.some((line) => line.includes("Known skill dirs named like design notes")), true);
-  assert.equal(meaningful.some((line) => line.includes("Took 19.6s")), true);
+  assert.equal(meaningful.some((line) => line.includes("Took 19.6s")), false);
   assert.equal(meaningful.every((line) => line.length <= 110), true);
+}
+
+function runToolCommandInlineRunningTimeRegression() {
+  const startedAt = Date.now() - 2400;
+  const lines = renderToolBlock({
+    state: "running",
+    toolName: "bash",
+    args: { command: "find \"$USERPROFILE\" -type f", timeoutMs: 30000 },
+    startedAt,
+  }, undefined, 96).map(stripAnsi);
+  const commandLine = lines.find((line) => line.includes("$ find"));
+
+  assert.match(commandLine, /bash running 2\.[0-9]s \(timeout 30s\)\s*$/);
+  assert.equal(lines.some((line) => line.includes("status started")), false);
 }
 
 function runToolCallThemeStylingRegression() {
@@ -331,7 +347,7 @@ function runInteractiveToolComponentRegression() {
     result: { content: [{ type: "text", text: "clean" }] },
   });
   const plain = ui._debugRenderLinesForTests(80).map(stripAnsi).join("\n");
-  assert.equal((plain.match(/bash/g) ?? []).length, 1, "tool start/update/end must keep one rendered tool row group");
+  assert.equal((plain.match(/\$ git status --short/g) ?? []).length, 1, "tool start/update/end must keep one rendered command row");
   assert.match(plain, /git status --short/);
   assert.match(plain, /clean/);
 }
@@ -401,10 +417,12 @@ function runConsecutiveToolSpacingRegression() {
 
   const lines = ui._debugRenderLinesForTests(80).map(stripAnsi);
   const firstEnd = lines.findIndex((line) => line.includes("a-output"));
+  const firstFooter = lines.findIndex((line, index) => index > firstEnd && line.includes("succeeded"));
   const secondStart = lines.findIndex((line) => line.includes("write succeeded"));
   assert.ok(firstEnd >= 0, "first tool output should render");
+  assert.ok(firstFooter > firstEnd, "first tool footer should render after output");
   assert.ok(secondStart > firstEnd, "second tool should render after first tool");
-  assert.deepEqual(lines.slice(firstEnd + 1, secondStart), [""], "consecutive tool calls should have exactly one blank line between them");
+  assert.deepEqual(lines.slice(firstFooter + 1, secondStart), [""], "consecutive tool calls should have exactly one blank line between them");
 }
 
 function runAssistantAndToolInterleaveRegression() {
@@ -994,6 +1012,7 @@ runSnapshotDeltaPollutionRegression();
 runUiEventCaptureRegression();
 runToolOutputStyleRegression();
 runPiLikeToolPresentationRegression();
+runToolCommandInlineRunningTimeRegression();
 runToolCallThemeStylingRegression();
 runInteractiveAssistantComponentRegression();
 runInteractiveNoTurnEndDuplicateRegression();

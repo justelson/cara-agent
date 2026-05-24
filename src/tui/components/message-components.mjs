@@ -114,7 +114,7 @@ export function renderToolBlock(toolState, theme = fallbackTheme, width = 100) {
   const rawArgs = toolState.args ?? toolState.arguments;
   const command = rawArgs && typeof rawArgs === "object" ? firstStringValue(rawArgs, ["command", "cmd"]) : undefined;
   const rows = command
-    ? [{ kind: "command", title, state, stateLabel, text: command }]
+    ? [{ kind: "command", title, state, stateLabel, text: command, rightText: toolCommandStatusText(toolState, { title, state, stateLabel }) }]
     : [{ kind: "title", title, state, stateLabel }];
   const args = summarizeToolArgs(rawArgs, { toolName: title, state, commandAsTitle: Boolean(command) });
   if (args) rows.push(...normalizeToolSummaryRows(args, "args"));
@@ -123,11 +123,11 @@ export function renderToolBlock(toolState, theme = fallbackTheme, width = 100) {
     rows.push({ kind: "spacer" });
     rows.push(...outputText.flatMap((line) => splitDisplayLines(line)).map((line) => ({ kind: "output", text: line })));
   }
-  const footer = toolFooterText(toolState, { title, state, stateLabel, hasOutput: outputText.length > 0, hasCommand: Boolean(command) });
+  const footer = command ? "" : toolFooterText(toolState, { title, state, stateLabel, hasOutput: outputText.length > 0 });
   if (footer) {
     rows.push({ kind: "spacer" });
     rows.push({ kind: state === "error" ? "footerError" : "hint", text: footer });
-  } else if (state === "running") {
+  } else if (state === "running" && !command) {
     rows.push({ kind: "hint", text: "status started" });
   }
   const terminalWidth = Math.max(24, Number(width) || 100);
@@ -148,6 +148,7 @@ export function summarizeToolArgs(args, context = {}) {
   if (rows.length > 0) return rows.slice(0, isMutation ? 14 : 7);
   const values = Object.entries(args).filter(([key, value]) => {
     if (context.commandAsTitle && ["command", "cmd"].includes(key)) return false;
+    if (context.commandAsTitle && isTimeoutArgKey(key)) return false;
     return value !== undefined && value !== null && value !== "";
   });
   const entries = values.slice(0, 4).map(([key, value]) => `${key}: ${formatToolValue(value)}`);
@@ -282,6 +283,10 @@ function firstStringValue(source = {}, keys = []) {
   return undefined;
 }
 
+function isTimeoutArgKey(key) {
+  return ["timeout", "timeoutMs", "timeout_ms", "timeoutSeconds", "timeout_seconds"].includes(key);
+}
+
 function normalizeToolName(value) {
   return String(value ?? "tool").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
@@ -318,14 +323,29 @@ function formatToolValue(value) {
 }
 
 function toolFooterText(toolState = {}, context = {}) {
-  const timing = formatToolTiming(toolState);
-  if (timing) return timing;
-  if (context.hasCommand) return `${String(context.title ?? "tool").replace(/\s+/g, " ").trim() || "tool"} ${context.stateLabel ?? context.state ?? ""}`.trim();
+  const timing = formatToolElapsed(toolState);
+  if (timing && context.state === "running") {
+    return `${String(context.title ?? "tool").replace(/\s+/g, " ").trim() || "tool"} running ${timing}`;
+  }
+  if (timing) return `${timing} ${context.stateLabel ?? context.state ?? ""}`.trim();
   if (context.state === "running" && !context.hasOutput) return "status started";
   return "";
 }
 
-function formatToolTiming(toolState = {}) {
+function toolCommandStatusText(toolState = {}, context = {}) {
+  const elapsed = formatToolElapsed(toolState, { running: context.state === "running" });
+  const timeout = formatToolTimeout(toolState);
+  const pieces = [];
+  if (context.state === "running") {
+    pieces.push(`${String(context.title ?? "tool").replace(/\s+/g, " ").trim() || "tool"} running${elapsed ? ` ${elapsed}` : ""}`);
+  } else {
+    pieces.push(`${elapsed ? `${elapsed} ` : ""}${context.stateLabel ?? context.state ?? ""}`.trim());
+  }
+  if (timeout) pieces.push(`(${timeout})`);
+  return pieces.filter(Boolean).join(" ");
+}
+
+function formatToolElapsed(toolState = {}, options = {}) {
   const durationMs = numericMilliseconds(toolState.durationMs)
     ?? numericMilliseconds(toolState.elapsedMs)
     ?? numericMilliseconds(toolState.executionTimeMs)
@@ -333,9 +353,24 @@ function formatToolTiming(toolState = {}) {
     ?? numericMilliseconds(toolState.result?.elapsedMs)
     ?? numericSeconds(toolState.durationSeconds)
     ?? numericSeconds(toolState.elapsedSeconds)
-    ?? durationBetween(toolState.startedAt, toolState.endedAt ?? toolState.completedAt);
+    ?? durationBetween(toolState.startedAt, toolState.endedAt ?? toolState.completedAt)
+    ?? (options.running ? durationBetween(toolState.startedAt, Date.now()) : undefined);
   if (durationMs === undefined) return "";
-  return `Took ${formatDuration(durationMs)}`;
+  return formatDuration(durationMs);
+}
+
+function formatToolTimeout(toolState = {}) {
+  const args = toolState.args ?? toolState.arguments ?? {};
+  const timeoutMs = numericMilliseconds(toolState.timeoutMs)
+    ?? numericMilliseconds(args.timeoutMs)
+    ?? numericMilliseconds(args.timeout_ms)
+    ?? numericSeconds(toolState.timeoutSeconds)
+    ?? numericSeconds(args.timeoutSeconds)
+    ?? numericSeconds(args.timeout_seconds)
+    ?? flexibleDuration(toolState.timeout)
+    ?? flexibleDuration(args.timeout);
+  if (timeoutMs === undefined) return "";
+  return `timeout ${formatDuration(timeoutMs)}`;
 }
 
 function numericMilliseconds(value) {
@@ -350,11 +385,31 @@ function numericSeconds(value) {
   return number * 1000;
 }
 
+function flexibleDuration(value) {
+  if (typeof value === "string") {
+    const text = value.trim().toLowerCase();
+    const match = text.match(/^([0-9]+(?:\.[0-9]+)?)\s*(ms|s|sec|secs|second|seconds)?$/);
+    if (!match) return undefined;
+    const number = Number(match[1]);
+    if (!Number.isFinite(number) || number < 0) return undefined;
+    return match[2] === "ms" ? number : number * 1000;
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return undefined;
+  return number <= 600 ? number * 1000 : number;
+}
+
 function durationBetween(start, end) {
-  const started = Date.parse(start);
-  const ended = Date.parse(end);
+  const started = parseTimestamp(start);
+  const ended = parseTimestamp(end);
   if (!Number.isFinite(started) || !Number.isFinite(ended) || ended < started) return undefined;
   return ended - started;
+}
+
+function parseTimestamp(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : NaN;
 }
 
 function formatDuration(ms) {
@@ -386,6 +441,15 @@ function renderToolRow(row, theme = fallbackTheme, width = 100, surface = theme.
   const markerColor = toolMarkerColor(row, theme);
   const prefix = toolRowPrefix(row, marker, markerColor);
   const contentWidth = Math.max(1, width - visibleWidth(prefix));
+  if (row.kind === "command") {
+    const rightText = String(row.rightText ?? "").trim();
+    const right = rightText ? `${toolStatusColor(row.state, theme)}${rightText}` : "";
+    const gap = right ? 2 : 0;
+    const leftWidth = Math.max(1, contentWidth - visibleWidth(right) - gap);
+    const left = `${prefix}${toolRowColor(row.kind, theme)}${truncatePlain(row.text ?? "", leftWidth)}`;
+    const spaces = right ? " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(right))) : "";
+    return `${surface}${padToVisibleWidth(`${left}${spaces}${right}`, width)}${reset}`;
+  }
   const rowContent = row.kind === "title"
     ? `${prefix}${renderToolTitle(row, theme, contentWidth)}`
     : `${prefix}${toolRowColor(row.kind, theme)}${truncatePlain(row.text ?? "", contentWidth)}`;
@@ -408,6 +472,12 @@ function toolMarkerColor(row, theme = fallbackTheme) {
   if (row.kind === "diffRemove") return theme.toolDiffRemoveFg ?? theme.error ?? theme.toolRailFg;
   if (row.kind === "title" || row.kind === "command") return theme.toolMarkerFg;
   return theme.toolRailFg;
+}
+
+function toolStatusColor(state, theme = fallbackTheme) {
+  if (state === "error") return theme.toolStateErrorFg ?? theme.error ?? theme.toolHintFg;
+  if (state === "done") return theme.toolStateSuccessFg ?? theme.success ?? theme.toolHintFg;
+  return theme.toolStateRunningFg ?? theme.warning ?? theme.toolHintFg;
 }
 
 function toolRowPrefix(row, marker, markerColor) {

@@ -173,6 +173,8 @@ export function createZyraUi(options = {}) {
       args: event.args ?? event.arguments ?? current.args,
       result: event.result ?? event.partialResult ?? current.result,
       isError: event.isError ?? state === "error",
+      startedAt: current.startedAt ?? event.startedAt ?? event.started_at ?? Date.now(),
+      endedAt: state === "running" ? current.endedAt : event.endedAt ?? event.completedAt ?? event.ended_at ?? Date.now(),
     };
 
     if (activeProgress) {
@@ -353,22 +355,31 @@ export function createZyraUi(options = {}) {
     },
     async interactive(onInput, options = {}) {
       inputActive = true;
-      await runTerminalInputLoop(onInput, { ...options, theme }, {
-        host,
-        getBusy: () => isBusy,
-        getActivityLabel: () => activityLabel,
-        suppressWorking: () => suppressWorking,
-        onUserMessage(text) {
-          host.append(new UserMessageComponent(`user-${Date.now()}`, text, theme));
-        },
-        onError(error) {
-          appendPanel(errorPanel(error, theme));
-        },
-        setRenderers() {},
-        clearRenderers() {
-          inputActive = false;
-        },
-      });
+      const toolElapsedTimer = setInterval(() => {
+        if (!inputActive || activeTools.size === 0) return;
+        host.markContentDirty();
+        host.invalidate();
+      }, 1000);
+      try {
+        await runTerminalInputLoop(onInput, { ...options, theme }, {
+          host,
+          getBusy: () => isBusy,
+          getActivityLabel: () => activityLabel,
+          suppressWorking: () => suppressWorking,
+          onUserMessage(text) {
+            host.append(new UserMessageComponent(`user-${Date.now()}`, text, theme));
+          },
+          onError(error) {
+            appendPanel(errorPanel(error, theme));
+          },
+          setRenderers() {},
+          clearRenderers() {
+            inputActive = false;
+          },
+        });
+      } finally {
+        clearInterval(toolElapsedTimer);
+      }
     },
     done() {
       appendLines(["", `${theme.muted}done${reset}`]);
