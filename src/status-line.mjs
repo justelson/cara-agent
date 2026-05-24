@@ -15,6 +15,7 @@ const green3 = "\x1b[38;5;82m";
 const green4 = "\x1b[38;5;46m";
 const branchCache = new Map();
 const branchCacheMs = 4000;
+const costCache = new WeakMap();
 
 export function renderStatusLine(runtime, width = Math.max(24, (process.stdout.columns ?? 100) - 1), state = {}) {
   const session = runtime.session;
@@ -91,14 +92,26 @@ function formatContext(session) {
 }
 
 function formatCost(session) {
+  const manager = session.sessionManager;
+  const entries = manager.getEntries();
+  const modelKey = session.model ? `${session.model.provider ?? ""}/${session.model.id ?? ""}` : "";
+  const cached = costCache.get(manager);
+  const lastEntry = entries.at(-1);
+  const lastCost = lastEntry?.message?.usage?.cost?.total;
+  if (cached && cached.length === entries.length && cached.lastEntry === lastEntry && cached.lastCost === lastCost && cached.modelKey === modelKey) {
+    return cached.value;
+  }
+
   let total = 0;
-  for (const entry of session.sessionManager.getEntries()) {
+  for (const entry of entries) {
     if (entry.type !== "message" || entry.message.role !== "assistant") continue;
     total += entry.message.usage?.cost?.total ?? 0;
   }
 
   const subscription = session.model ? session.modelRegistry.isUsingOAuth(session.model) : false;
-  return `$${total.toFixed(3)}${subscription ? " sub" : ""}`;
+  const value = `$${total.toFixed(3)}${subscription ? " sub" : ""}`;
+  costCache.set(manager, { length: entries.length, lastEntry, lastCost, modelKey, value });
+  return value;
 }
 
 function formatPath(cwd) {

@@ -76,6 +76,7 @@ export function getSlashSuggestions(runtime, text) {
         label: theme.name,
         description: theme.name === runtime.terminalTheme?.name ? "active" : (theme.displayName ?? theme.description ?? theme.source),
         kind: "theme",
+        selected: theme.name === runtime.terminalTheme?.name,
         previewTheme: theme,
         preview: buildThemePreview(theme),
         submitOnEnter: true,

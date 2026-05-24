@@ -338,8 +338,10 @@ function runRunningToolStartsImmediatelyRegression() {
   assert.match(plain, /edit running/, "tool start should render immediately as running");
   assert.match(plain, /path src\/example\.mjs/);
   assert.match(plain, /edit replace/);
-  assert.match(plain, /from const value = 1;/);
-  assert.match(plain, /to   const value = 2;/);
+  assert.match(plain, /--- before/);
+  assert.match(plain, /- const value = 1;/);
+  assert.match(plain, /\+\+\+ after/);
+  assert.match(plain, /\+ const value = 2;/);
   assert.match(plain, /status started/);
 }
 
@@ -358,7 +360,8 @@ function runWriteToolRicherRepresentationRegression() {
   assert.equal(meaningful.some((line) => line.includes("write running")), true);
   assert.equal(meaningful.some((line) => line.includes("path notes.md")), true);
   assert.equal(meaningful.some((line) => line.includes("write 3 lines")), true);
-  assert.equal(meaningful.some((line) => line.includes("text first line")), true);
+  assert.equal(meaningful.some((line) => line.includes("+++ content")), true);
+  assert.equal(meaningful.some((line) => line.includes("+ first line")), true);
   assert.equal(meaningful.some((line) => line.includes("status started")), true);
 }
 
@@ -721,6 +724,60 @@ function runEditorImmediateSlashRegression() {
   editor.dispose();
 }
 
+function runThemeSelectorStartsOnActiveThemeRegression() {
+  const editor = new EditorComponent({
+    suggestions: () => [
+      { value: "dusk", label: "dusk", description: "theme", kind: "theme" },
+      { value: "quiet", label: "quiet", description: "active", kind: "theme", selected: true },
+      { value: "vivid", label: "vivid", description: "theme", kind: "theme" },
+    ],
+    theme: {},
+  });
+
+  editor.buffer = "/themes ";
+  editor.render(80);
+  assert.equal(editor.selectedIndex, 1, "theme selector should start on the active theme");
+
+  editor.handleKeypress("", { name: "down" });
+  editor.render(80);
+  assert.equal(editor.selectedIndex, 2, "manual theme navigation should not snap back to the active theme");
+  editor.dispose();
+}
+
+function runFixedOnlyInputRenderAvoidsTranscriptReplayRegression() {
+  const writes = [];
+  const fakeOutput = {
+    columns: 80,
+    rows: 16,
+    write(chunk) {
+      writes.push(String(chunk));
+      return true;
+    },
+    on() {},
+    off() {},
+  };
+  const host = new ZyraComponentHost({ output: fakeOutput, autoRender: true });
+  const editor = new EditorComponent({
+    suggestions: () => [],
+    statusLine: () => "STATUS",
+    theme: {},
+  });
+
+  host.setInteractive(true);
+  host.append(new StaticLinesComponent("transcript", Array.from({ length: 40 }, (_, index) => `line ${index + 1}`)));
+  host.setInputComponent(editor);
+  host.invalidate({ force: true });
+  writes.length = 0;
+
+  editor.buffer = "a";
+  host.invalidate({ fixedOnly: true, force: true });
+  const raw = writes.join("");
+
+  assert.match(stripAnsi(raw), /> a/, "fixed input render should update the typed buffer");
+  assert.equal(raw.includes("line 1"), false, "fixed input render must not replay transcript content");
+  editor.dispose();
+}
+
 function runStatusLineColorRegression() {
   const runtime = {
     profile: "elson",
@@ -762,6 +819,37 @@ function runStatusLineColorRegression() {
   const freshLine = renderStatusLine(runtime, 120);
   assert.match(freshLine, /\x1b\[38;2;0;255;0mContext 100% left/);
   assert.match(freshLine, /\x1b\[38;2;119;119;119m\$0\.000/);
+}
+
+function runStatusLineCostCacheRegression() {
+  let iterations = 0;
+  const entries = [
+    { type: "message", message: { role: "assistant", usage: { cost: { total: 0.25 } } } },
+  ];
+  entries[Symbol.iterator] = function* iterator() {
+    iterations += 1;
+    yield entries[0];
+  };
+  const runtime = {
+    profile: "elson",
+    terminalTheme: "quiet",
+    session: {
+      model: { provider: "openai-codex", id: "gpt-test" },
+      thinkingLevel: "medium",
+      getContextUsage: () => ({ percent: 10 }),
+      sessionManager: {
+        getCwd: () => process.cwd(),
+        getEntries: () => entries,
+      },
+      modelRegistry: {
+        isUsingOAuth: () => true,
+      },
+    },
+  };
+
+  renderStatusLine(runtime, 120);
+  renderStatusLine(runtime, 120);
+  assert.equal(iterations, 1, "status line should not rescan message cost on every input render");
 }
 
 function runSystemPanelWidthRegression() {
@@ -848,7 +936,10 @@ runEditorStatusGapRegression();
 runEditorBusySpacingRegression();
 runEditorSessionResetRegression();
 runEditorImmediateSlashRegression();
+runThemeSelectorStartsOnActiveThemeRegression();
+runFixedOnlyInputRenderAvoidsTranscriptReplayRegression();
 runStatusLineColorRegression();
+runStatusLineCostCacheRegression();
 runSystemPanelWidthRegression();
 runThemePreferencePersistenceRegression();
 runSessionCommandRenameRegression();

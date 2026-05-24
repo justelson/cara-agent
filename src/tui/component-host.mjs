@@ -30,12 +30,17 @@ export class ZyraComponentHost {
     this.interactive = false;
     this.batchOpen = false;
     this.lastOutput = "";
+    this.lastContentOutput = "";
+    this.lastFixedOutput = "";
     this.autoRender = Boolean(options.autoRender);
     this.useAlternateScreen = options.useAlternateScreen ?? false;
     this.alternateScreenActive = false;
     this.contentDirty = true;
     this.contentLinesCache = [];
     this.contentCacheWidth = 0;
+    this.contentPhysicalRowsCache = 0;
+    this.renderedContentLines = [];
+    this.renderedFixedLines = [];
   }
 
   width() {
@@ -57,18 +62,27 @@ export class ZyraComponentHost {
         this.output.write(`${alternateScreenStart}${clearScreen}`);
         this.alternateScreenActive = true;
         this.renderedLines = [];
+        this.renderedContentLines = [];
+        this.renderedFixedLines = [];
         this.renderedPhysicalRows = 0;
         this.lastOutput = "";
+        this.lastContentOutput = "";
+        this.lastFixedOutput = "";
       }
       this.output.write(`${hideCursor}`);
     }
   }
 
   markRendered(width = this.width()) {
-    const lines = this.renderLines(width);
-    this.renderedLines = [...lines];
-    this.renderedPhysicalRows = countPhysicalRows(lines, width);
-    this.lastOutput = lines.join("\n");
+    const { contentLines, fixedLines, lines } = this.renderParts(width);
+    const contentOutput = contentLines.join("\n");
+    const fixedOutput = fixedLines.join("\n");
+    this.rememberRenderedParts(contentLines, fixedLines, width, {
+      contentOutput,
+      fixedOutput,
+      output: lines.join("\n"),
+      replaceContent: true,
+    });
     this.previousWidth = width;
     this.previousHeight = this.height();
   }
@@ -170,7 +184,19 @@ export class ZyraComponentHost {
     this.previousWidth = width;
     this.previousHeight = height;
 
-    const lines = this.renderLines(width);
+    if (this.shouldRenderFixedOnly(options, width, resized)) {
+      const contentLines = this.renderContentLines(width);
+      const fixedLines = this.renderFixedLines(width);
+      const fixedOutput = fixedLines.join("\n");
+      if (fixedOutput === this.lastFixedOutput && contentLines.length === this.renderedContentLines.length) return;
+      this.diffRenderFixed(contentLines, fixedLines);
+      this.rememberRenderedParts(contentLines, fixedLines, width, { fixedOutput });
+      return;
+    }
+
+    const { contentLines, fixedLines, lines } = this.renderParts(width);
+    const contentOutput = contentLines.join("\n");
+    const fixedOutput = fixedLines.join("\n");
     const output = lines.join("\n");
 
     if (!this.interactive) {
@@ -180,17 +206,30 @@ export class ZyraComponentHost {
       return;
     }
 
-    if (!resized && output === this.lastOutput) return;
+    if (!resized && contentOutput === this.lastContentOutput && fixedOutput === this.lastFixedOutput) return;
 
     if (resized || options.clear) this.fullRender(lines, { clear: true });
     else this.diffRender(lines);
-    this.renderedLines = [...lines];
-    this.renderedPhysicalRows = countPhysicalRows(lines, width);
-    this.lastOutput = output;
+    this.rememberRenderedParts(contentLines, fixedLines, width, {
+      contentOutput,
+      fixedOutput,
+      output,
+      replaceContent: true,
+    });
   }
 
   renderLines(width = this.width()) {
-    return renderLinesWithinWidth([...this.renderContentLines(width), ...this.renderFixedLines(width)], width);
+    return this.renderParts(width).lines;
+  }
+
+  renderParts(width = this.width()) {
+    const contentLines = this.renderContentLines(width);
+    const fixedLines = this.renderFixedLines(width);
+    return {
+      contentLines,
+      fixedLines,
+      lines: renderLinesWithinWidth([...contentLines, ...fixedLines], width),
+    };
   }
 
   renderContentLines(width = this.width()) {
@@ -209,6 +248,7 @@ export class ZyraComponentHost {
     const renderedLines = renderLinesWithinWidth(lines, width);
     this.contentLinesCache = renderedLines;
     this.contentCacheWidth = width;
+    this.contentPhysicalRowsCache = countPhysicalRows(renderedLines, width);
     this.contentDirty = false;
     return renderedLines;
   }
@@ -243,6 +283,17 @@ export class ZyraComponentHost {
     const output = lines.join("\n");
     if (output) this.output.write(output);
     this.endBatch();
+  }
+
+  shouldRenderFixedOnly(options = {}, width = this.width(), resized = false) {
+    return Boolean(
+      this.interactive
+      && options.fixedOnly
+      && !resized
+      && !this.contentDirty
+      && this.contentCacheWidth === width
+      && this.renderedLines.length > 0,
+    );
   }
 
   diffRender(lines) {
@@ -284,6 +335,74 @@ export class ZyraComponentHost {
     this.endBatch();
   }
 
+  diffRenderFixed(contentLines = [], fixedLines = []) {
+    if (this.renderedLines.length === 0 || this.renderedContentLines.length !== contentLines.length) {
+      this.fullRender([...contentLines, ...fixedLines], { clear: false });
+      return;
+    }
+
+    const previousFixed = this.renderedFixedLines;
+    let firstChanged = -1;
+    const max = Math.max(previousFixed.length, fixedLines.length);
+    for (let index = 0; index < max; index += 1) {
+      if ((previousFixed[index] ?? "") !== (fixedLines[index] ?? "")) {
+        firstChanged = index;
+        break;
+      }
+    }
+    if (firstChanged === -1) return;
+
+    const previousTotal = this.renderedContentLines.length + previousFixed.length;
+    const nextTotal = contentLines.length + fixedLines.length;
+    const globalFirstChanged = contentLines.length + firstChanged;
+    const viewportTop = Math.max(0, previousTotal - this.height());
+    if (globalFirstChanged < viewportTop) {
+      this.fullRender([...contentLines, ...fixedLines], { clear: true });
+      return;
+    }
+
+    this.diffRenderTail(globalFirstChanged, fixedLines.slice(firstChanged), previousTotal, nextTotal);
+  }
+
+  diffRenderTail(firstChanged, tailLines = [], previousTotal, nextTotal) {
+    const rowsUp = Math.max(0, previousTotal - firstChanged - 1);
+    let buffer = "";
+    if (rowsUp > 0) buffer += `\x1b[${rowsUp}A`;
+    buffer += firstChanged >= previousTotal && previousTotal > 0 ? "\r\n" : "\r";
+
+    for (let index = 0; index < tailLines.length; index += 1) {
+      if (index > 0) buffer += "\r\n";
+      buffer += `\x1b[2K${tailLines[index]}`;
+    }
+    if (previousTotal > nextTotal) buffer += "\x1b[J";
+
+    this.beginBatch();
+    this.output.write(buffer);
+    this.endBatch();
+  }
+
+  rememberRenderedParts(contentLines = [], fixedLines = [], width = this.width(), options = {}) {
+    const replaceContent = options.replaceContent
+      || this.renderedContentLines.length !== contentLines.length
+      || this.renderedLines.length < contentLines.length;
+
+    if (replaceContent) {
+      this.renderedContentLines = [...contentLines];
+      this.renderedLines = [...contentLines, ...fixedLines];
+    } else {
+      this.renderedLines.length = this.renderedContentLines.length + fixedLines.length;
+      for (let index = 0; index < fixedLines.length; index += 1) {
+        this.renderedLines[this.renderedContentLines.length + index] = fixedLines[index];
+      }
+    }
+
+    this.renderedFixedLines = [...fixedLines];
+    this.renderedPhysicalRows = this.contentPhysicalRowsCache + countPhysicalRows(fixedLines, width);
+    if (options.contentOutput !== undefined) this.lastContentOutput = options.contentOutput;
+    if (options.fixedOutput !== undefined) this.lastFixedOutput = options.fixedOutput;
+    if (options.output !== undefined) this.lastOutput = options.output;
+  }
+
   clearRendered(width = this.width()) {
     if (this.renderedPhysicalRows <= 0 && this.renderedLines.length === 0) return;
     const rowsAtCurrentWidth = countPhysicalRows(this.renderedLines, width);
@@ -293,8 +412,12 @@ export class ZyraComponentHost {
     readline.cursorTo(this.output, 0);
     readline.clearScreenDown(this.output);
     this.renderedLines = [];
+    this.renderedContentLines = [];
+    this.renderedFixedLines = [];
     this.renderedPhysicalRows = 0;
     this.lastOutput = "";
+    this.lastContentOutput = "";
+    this.lastFixedOutput = "";
   }
 
   beginBatch() {

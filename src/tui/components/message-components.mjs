@@ -112,7 +112,7 @@ export function renderToolBlock(toolState, theme = fallbackTheme, width = 100) {
   const title = toolState.toolName ?? "tool";
   const rows = [{ kind: "title", title, state, stateLabel }];
   const args = summarizeToolArgs(toolState.args ?? toolState.arguments, { toolName: title, state });
-  if (args) rows.push(...args.flatMap((line) => splitDisplayLines(line)).map((line) => ({ kind: "args", text: line })));
+  if (args) rows.push(...normalizeToolSummaryRows(args, "args"));
   const outputText = summarizeToolResult(toolState.result ?? toolState.partialResult);
   if (outputText.length > 0) {
     rows.push(...outputText.flatMap((line) => splitDisplayLines(line)).map((line) => ({ kind: "output", text: line })));
@@ -130,10 +130,11 @@ export function summarizeToolArgs(args, context = {}) {
   const rows = [];
   const targetPath = firstStringValue(args, ["path", "filePath", "file_path", "targetPath", "target_file", "filename"]);
   const command = firstStringValue(args, ["command", "cmd"]);
+  const isMutation = isFileMutationTool(toolName, args);
   if (targetPath) rows.push(`path ${truncatePlain(targetPath, 116)}`);
   if (command) rows.push(`${toolName.includes("bash") ? "cmd " : "run "} ${truncatePlain(command, 116)}`);
-  if (isFileMutationTool(toolName, args)) rows.push(...summarizeMutationArgs(toolName, args));
-  if (rows.length > 0) return rows.slice(0, 7);
+  if (isMutation) rows.push(...summarizeMutationArgs(toolName, args));
+  if (rows.length > 0) return rows.slice(0, isMutation ? 14 : 7);
   const values = Object.entries(args).filter(([, value]) => value !== undefined && value !== null && value !== "");
   const entries = values.slice(0, 4).map(([key, value]) => `${key}: ${formatToolValue(value)}`);
   if (values.length > entries.length) {
@@ -155,6 +156,16 @@ export function summarizeToolResult(result) {
   return visible;
 }
 
+function normalizeToolSummaryRows(items = [], fallbackKind = "args") {
+  return items.flatMap((item) => {
+    if (typeof item === "string") {
+      return splitDisplayLines(item).map((line) => ({ kind: fallbackKind, text: line }));
+    }
+    const kind = item?.kind ?? fallbackKind;
+    return splitDisplayLines(item?.text ?? "").map((line) => ({ kind, text: line }));
+  });
+}
+
 function summarizeMutationArgs(toolName, args = {}) {
   const rows = [];
   const oldText = firstStringValue(args, ["oldString", "old_string", "oldStr", "old_str", "from", "before"]);
@@ -164,41 +175,81 @@ function summarizeMutationArgs(toolName, args = {}) {
   const edits = Array.isArray(args.edits) ? args.edits : Array.isArray(args.replacements) ? args.replacements : [];
 
   if (oldText !== undefined || newText !== undefined) {
-    rows.push(`edit replace ${formatTextSize(oldText)} -> ${formatTextSize(newText)}`);
-    const oldPreview = previewText(oldText);
-    const newPreview = previewText(newText);
-    if (oldPreview) rows.push(`from ${oldPreview}`);
-    if (newPreview) rows.push(`to   ${newPreview}`);
+    rows.push({ kind: "diffMeta", text: `edit replace ${formatTextSize(oldText)} -> ${formatTextSize(newText)}` });
+    rows.push(...renderBeforeAfterDiff(oldText, newText));
     return rows;
   }
 
   if (content !== undefined) {
     const verb = toolName.includes("append") ? "append" : toolName.includes("edit") ? "edit" : "write";
-    rows.push(`${verb} ${formatTextSize(content)}`);
-    const preview = previewText(content);
-    if (preview) rows.push(`text ${preview}`);
+    rows.push({ kind: "diffMeta", text: `${verb} ${formatTextSize(content)}` });
+    rows.push(...renderAddedTextDiff(content));
     return rows;
   }
 
   if (patch !== undefined) {
-    rows.push(`patch ${formatPatchSize(patch)}`);
-    const preview = previewText(patch);
-    if (preview) rows.push(`diff ${preview}`);
+    rows.push({ kind: "diffMeta", text: `patch ${formatPatchSize(patch)}` });
+    rows.push(...renderPatchDiff(patch));
     return rows;
   }
 
   if (edits.length > 0) {
-    rows.push(`edit ${edits.length} replacement${edits.length === 1 ? "" : "s"}`);
-    for (const edit of edits.slice(0, 3)) {
+    rows.push({ kind: "diffMeta", text: `edit ${edits.length} replacement${edits.length === 1 ? "" : "s"}` });
+    for (const edit of edits.slice(0, 2)) {
       const editPath = firstStringValue(edit, ["path", "filePath", "file_path"]);
       const editOld = firstStringValue(edit, ["oldString", "old_string", "oldStr", "old_str", "from", "before"]);
       const editNew = firstStringValue(edit, ["newString", "new_string", "newStr", "new_str", "to", "after"]);
       const label = editPath ? truncatePlain(editPath, 42) : "change";
-      rows.push(`${label} ${formatTextSize(editOld)} -> ${formatTextSize(editNew)}`);
+      rows.push({ kind: "diffMeta", text: `${label} ${formatTextSize(editOld)} -> ${formatTextSize(editNew)}` });
+      rows.push(...renderBeforeAfterDiff(editOld, editNew, 2));
     }
+    if (edits.length > 2) rows.push({ kind: "hint", text: `... ${edits.length - 2} more replacement${edits.length - 2 === 1 ? "" : "s"}` });
   }
 
   return rows;
+}
+
+function renderBeforeAfterDiff(oldText = "", newText = "", maxLines = 3) {
+  const rows = [];
+  const before = previewLines(oldText, maxLines);
+  const after = previewLines(newText, maxLines);
+  if (before.length > 0) {
+    rows.push({ kind: "diffMeta", text: "--- before" });
+    rows.push(...before.map((line) => ({ kind: "diffRemove", text: line })));
+  }
+  if (after.length > 0) {
+    rows.push({ kind: "diffMeta", text: "+++ after" });
+    rows.push(...after.map((line) => ({ kind: "diffAdd", text: line })));
+  }
+  return rows;
+}
+
+function renderAddedTextDiff(text = "", maxLines = 5) {
+  const lines = previewLines(text, maxLines);
+  if (lines.length === 0) return [];
+  return [
+    { kind: "diffMeta", text: "+++ content" },
+    ...lines.map((line) => ({ kind: "diffAdd", text: line })),
+  ];
+}
+
+function renderPatchDiff(patch = "", maxLines = 8) {
+  const lines = String(patch ?? "").split(/\r?\n/).filter((line) => line.trim().length > 0).slice(0, maxLines);
+  return lines.map((line) => {
+    if (line.startsWith("@@") || line.startsWith("+++") || line.startsWith("---")) return { kind: "diffMeta", text: line };
+    if (line.startsWith("+")) return { kind: "diffAdd", text: line.slice(1) };
+    if (line.startsWith("-")) return { kind: "diffRemove", text: line.slice(1) };
+    return { kind: "diffContext", text: line.trimStart() };
+  });
+}
+
+function previewLines(value = "", maxLines = 4) {
+  return String(value ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0)
+    .slice(0, maxLines)
+    .map((line) => truncatePlain(line, 96));
 }
 
 function isFileMutationTool(toolName, args = {}) {
@@ -243,11 +294,6 @@ function formatBytes(bytes) {
   return `${(value / 1024).toFixed(value < 10 * 1024 ? 1 : 0)}kb`;
 }
 
-function previewText(value = "") {
-  const line = String(value ?? "").split(/\r?\n/).map((item) => item.trim()).find(Boolean);
-  return line ? truncatePlain(line, 88) : "";
-}
-
 function formatToolValue(value) {
   if (typeof value === "string") return truncatePlain(value, 80);
   try {
@@ -261,19 +307,39 @@ function toolRowColor(kind, theme = fallbackTheme) {
   if (kind === "title") return theme.toolTitleFg ?? theme.toolFg ?? `${bold}\x1b[97m`;
   if (kind === "args") return theme.toolArgsFg ?? theme.toolDetailFg ?? theme.toolFg ?? "\x1b[97m";
   if (kind === "output") return theme.toolOutputFg ?? theme.toolDetailFg ?? theme.toolFg ?? "\x1b[97m";
+  if (kind === "diffAdd") return theme.toolDiffAddFg ?? theme.success ?? theme.toolFg ?? "\x1b[92m";
+  if (kind === "diffRemove") return theme.toolDiffRemoveFg ?? theme.error ?? theme.toolFg ?? "\x1b[91m";
+  if (kind === "diffMeta") return theme.toolDiffMetaFg ?? theme.toolDimFg ?? theme.toolHintFg ?? "\x1b[38;5;245m";
+  if (kind === "diffContext") return theme.toolDiffContextFg ?? theme.toolDetailFg ?? theme.toolFg ?? "\x1b[97m";
   if (kind === "hint") return theme.toolHintFg ?? theme.toolFg ?? "\x1b[38;5;245m";
   return theme.toolDetailFg ?? theme.toolFg ?? "\x1b[97m";
 }
 
 function renderToolRow(row, theme = fallbackTheme, width = 100, surface = theme.toolBg) {
-  const marker = row.kind === "title" && row.state === "error" ? "!" : row.kind === "title" ? ">" : "|";
-  const markerColor = row.kind === "title" ? theme.toolMarkerFg : theme.toolRailFg;
+  const marker = toolRowMarker(row);
+  const markerColor = toolMarkerColor(row, theme);
   const prefix = `  ${markerColor}${marker} `;
   const contentWidth = Math.max(1, width - 4);
   const rowContent = row.kind === "title"
     ? `${prefix}${renderToolTitle(row, theme, contentWidth)}`
     : `${prefix}${toolRowColor(row.kind, theme)}${truncatePlain(row.text ?? "", contentWidth)}`;
   return `${surface}${padToVisibleWidth(rowContent, width)}${reset}`;
+}
+
+function toolRowMarker(row) {
+  if (row.kind === "title" && row.state === "error") return "!";
+  if (row.kind === "title") return ">";
+  if (row.kind === "diffAdd") return "+";
+  if (row.kind === "diffRemove") return "-";
+  if (row.kind === "diffContext") return " ";
+  return "|";
+}
+
+function toolMarkerColor(row, theme = fallbackTheme) {
+  if (row.kind === "diffAdd") return theme.toolDiffAddFg ?? theme.success ?? theme.toolRailFg;
+  if (row.kind === "diffRemove") return theme.toolDiffRemoveFg ?? theme.error ?? theme.toolRailFg;
+  if (row.kind === "title") return theme.toolMarkerFg;
+  return theme.toolRailFg;
 }
 
 function toolSurfaceForState(state, theme = fallbackTheme) {

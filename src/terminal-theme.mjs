@@ -144,6 +144,10 @@ export function buildTerminalTheme(themeInput = {}) {
     toolArgsFg: fg(toolCall.args),
     toolOutputFg: fg(toolCall.output),
     toolDimFg: fg(toolCall.muted),
+    toolDiffAddFg: fg(toolCall.diffAdd),
+    toolDiffRemoveFg: fg(toolCall.diffRemove),
+    toolDiffMetaFg: fg(toolCall.diffMeta),
+    toolDiffContextFg: fg(toolCall.diffContext),
     reset,
   };
 }
@@ -298,6 +302,10 @@ function resolveToolCallColors(colors = {}) {
     args: pickColor(toolCall.args, colors.toolArgsFg, colors.toolDetailFg, colors.muted, colors.toolFg),
     output: pickColor(toolCall.output, colors.toolOutputFg, colors.toolDetailFg, colors.toolFg, colors.muted),
     muted: pickColor(toolCall.muted, colors.toolDimFg, colors.toolHintFg, colors.muted, colors.toolFg),
+    diffAdd: pickColor(toolCall.diffAdd, colors.toolDiffAddFg, colors.success, colors.toolFg),
+    diffRemove: pickColor(toolCall.diffRemove, colors.toolDiffRemoveFg, colors.error, colors.toolFg),
+    diffMeta: pickColor(toolCall.diffMeta, colors.toolDiffMetaFg, colors.muted, colors.toolDetailFg),
+    diffContext: pickColor(toolCall.diffContext, colors.toolDiffContextFg, colors.toolDetailFg, colors.muted),
   };
 }
 

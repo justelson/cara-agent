@@ -29,6 +29,7 @@ export class EditorComponent {
     this.pendingInsertedText = "";
     this.pendingInsertTimer = undefined;
     this.selectedIndex = 0;
+    this.selectionDirty = false;
     this.completedText = "";
     this.suppressSuggestionsFor = "";
     this.cachedSuggestionText = undefined;
@@ -72,6 +73,7 @@ export class EditorComponent {
     this.pastedImages = [];
     this.pendingInsertedText = "";
     this.selectedIndex = 0;
+    this.selectionDirty = false;
     this.completedText = "";
     this.suppressSuggestionsFor = "";
     this.clearSuggestionCache();
@@ -126,6 +128,7 @@ export class EditorComponent {
 
     const suggestions = this.suggestionsFor(this.buffer);
     if (this.selectedIndex >= suggestions.length) this.selectedIndex = 0;
+    this.alignSelectedSuggestion(suggestions);
     this.notifySelectedSuggestion(suggestions[this.selectedIndex]);
     const maxVisible = this.options.maxSuggestions ?? 10;
     const startIndex = Math.max(0, Math.min(this.selectedIndex - Math.floor(maxVisible / 2), suggestions.length - maxVisible));
@@ -160,11 +163,13 @@ export class EditorComponent {
     if (key?.name === "up" && this.shouldShowStarterRecommendations()) return this.insertStarterRecommendation();
     if (key?.name === "down" && suggestions.length > 0) {
       this.selectedIndex = (this.selectedIndex + 1) % suggestions.length;
+      this.selectionDirty = true;
       this.invalidateInput();
       return;
     }
     if (key?.name === "up" && suggestions.length > 0) {
       this.selectedIndex = (this.selectedIndex - 1 + suggestions.length) % suggestions.length;
+      this.selectionDirty = true;
       this.invalidateInput();
       return;
     }
@@ -201,6 +206,7 @@ export class EditorComponent {
       this.completedText = "";
       this.suppressSuggestionsFor = "";
       this.selectedIndex = 0;
+      this.selectionDirty = false;
       this.inputHistoryIndex = null;
       this.clearSuggestionCache();
       this.invalidateInput();
@@ -214,6 +220,7 @@ export class EditorComponent {
       this.completedText = "";
       this.suppressSuggestionsFor = "";
       this.selectedIndex = 0;
+      this.selectionDirty = false;
       this.inputHistoryIndex = null;
       this.clearSuggestionCache();
       this.invalidateInput();
@@ -267,6 +274,7 @@ export class EditorComponent {
     this.pastedImages = [];
     this.placeholderText = pickPlaceholder(this.placeholderText);
     this.selectedIndex = 0;
+    this.selectionDirty = false;
     this.suppressSuggestionsFor = "";
     this.clearSuggestionCache();
     this.inputHistoryIndex = null;
@@ -291,6 +299,7 @@ export class EditorComponent {
     this.suppressSuggestionsFor = selected.kind === "custom-model" ? next : "";
     this.clearSuggestionCache();
     this.selectedIndex = 0;
+    this.selectionDirty = false;
     this.inputHistoryIndex = null;
     this.invalidateInput();
     if (completionOptions.submitOnEnter && selected.submitOnEnter) return next.trim();
@@ -310,6 +319,7 @@ export class EditorComponent {
     this.suppressSuggestionsFor = "";
     this.clearSuggestionCache();
     this.selectedIndex = 0;
+    this.selectionDirty = false;
     this.inputHistoryIndex = null;
     this.invalidateInput();
     return true;
@@ -323,6 +333,7 @@ export class EditorComponent {
     this.suppressSuggestionsFor = "";
     this.clearSuggestionCache();
     this.selectedIndex = 0;
+    this.selectionDirty = false;
     this.inputHistoryIndex = null;
     this.invalidateInput();
   }
@@ -365,6 +376,7 @@ export class EditorComponent {
     this.suppressSuggestionsFor = "";
     this.clearSuggestionCache();
     this.selectedIndex = 0;
+    this.selectionDirty = false;
     this.inputHistoryIndex = null;
     this.invalidateInput();
   }
@@ -386,6 +398,7 @@ export class EditorComponent {
       this.suppressSuggestionsFor = "";
       this.clearSuggestionCache();
       this.selectedIndex = 0;
+      this.selectionDirty = false;
       this.inputHistoryIndex = null;
       this.invalidateInput();
     };
@@ -424,6 +437,7 @@ export class EditorComponent {
     this.suppressSuggestionsFor = "";
     this.clearSuggestionCache();
     this.selectedIndex = 0;
+    this.selectionDirty = false;
     return true;
   }
 
@@ -434,6 +448,12 @@ export class EditorComponent {
   clearSuggestionCache() {
     this.cachedSuggestionText = undefined;
     this.cachedSuggestions = [];
+  }
+
+  alignSelectedSuggestion(suggestions = []) {
+    if (this.selectionDirty || suggestions.length === 0) return;
+    const preferredIndex = suggestions.findIndex((item) => item?.selected);
+    if (preferredIndex >= 0) this.selectedIndex = preferredIndex;
   }
 
   notifySelectedSuggestion(item) {
