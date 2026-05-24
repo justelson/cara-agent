@@ -205,8 +205,9 @@ export function upsertStage1Output(root, output) {
   writeFileSync(stage1File(paths.stage1, threadId), `${JSON.stringify(record, null, 2)}\n`, "utf8");
 
   const state = readMemoryState(root);
+  const threadMemoryMode = normalizeStoredMemoryMode(state.threadMemoryModes?.[threadId]);
   state.stage1Outputs[threadId] = stage1Metadata(record);
-  if (!state.phase2.selectedThreadIds.includes(threadId) && record.memoryMode === "enabled") {
+  if (!state.phase2.selectedThreadIds.includes(threadId) && record.memoryMode === "enabled" && threadMemoryMode === "enabled") {
     state.phase2.selectedThreadIds.push(threadId);
   }
   writeMemoryState(root, state);
@@ -228,6 +229,7 @@ export function readStage1Output(root, threadId) {
 export function listStage1Outputs(root, options = {}) {
   ensureBareMemoryWorkspace(root);
   const paths = getMemoryPaths(root);
+  const state = readMemoryState(root);
   const files = existsSync(paths.stage1)
     ? readdirSync(paths.stage1).filter((file) => file.endsWith(".json")).sort()
     : [];
@@ -235,7 +237,7 @@ export function listStage1Outputs(root, options = {}) {
     .map((file) => readJsonFile(path.join(paths.stage1, file)))
     .filter(Boolean)
     .map((item) => ({ ...item, threadId: sanitizeId(item.threadId ?? path.basename(item.sourcePath ?? file, ".json")) }))
-    .filter((item) => !options.enabledOnly || item.memoryMode !== "disabled" && item.memoryMode !== "polluted");
+    .filter((item) => !options.enabledOnly || effectiveStage1MemoryMode(state, item) === "enabled");
 
   const sorted = outputs.sort((left, right) => {
     const usageDelta = (right.usageCount ?? 0) - (left.usageCount ?? 0);
@@ -770,7 +772,7 @@ export function buildMemoryOverview(root, options = {}) {
   const paths = getMemoryPaths(root);
   const state = readMemoryState(root);
   const outputs = listStage1Outputs(root);
-  const enabled = outputs.filter((item) => item.memoryMode !== "disabled" && item.memoryMode !== "polluted");
+  const enabled = listStage1Outputs(root, { enabledOnly: true });
   const summaryBullets = extractBullets(readText(paths.summary)).slice(0, 6);
   const skillNames = listMemorySkillNames(paths.skills);
   const currentThreadId = sanitizeId(options.threadId);
@@ -896,20 +898,58 @@ export function setThreadMemoryMode(root, threadId, memoryMode) {
   if (!id) throw new Error("Thread memory mode requires a thread id.");
   const mode = normalizeMemoryMode(memoryMode);
   const state = readMemoryState(root);
+  const previousMode = normalizeStoredMemoryMode(state.threadMemoryModes?.[id]);
+  const wasSelected = state.phase2.selectedThreadIds?.includes(id);
+  const hasStage1Output = Boolean(state.stage1Outputs?.[id]) || Boolean(readStage1Output(root, id));
   state.threadMemoryModes[id] = mode;
   writeMemoryState(root, state);
-  return { threadId: id, mode };
+  if (previousMode !== mode && (wasSelected || hasStage1Output)) {
+    rebuildPhase2Inputs(root);
+    enqueuePhase2Job(root, new Date().toISOString());
+  }
+  return { threadId: id, mode, previousMode, changed: previousMode !== mode };
+}
+
+export function markThreadMemoryModePolluted(root, threadId, reason = "external context") {
+  ensureMemoryWorkspace(root);
+  const id = sanitizeId(threadId);
+  if (!id) throw new Error("Thread memory pollution requires a thread id.");
+  const state = readMemoryState(root);
+  const previousMode = normalizeStoredMemoryMode(state.threadMemoryModes?.[id]);
+  const wasSelected = state.phase2.selectedThreadIds?.includes(id);
+  const hasStage1Output = Boolean(state.stage1Outputs?.[id]) || Boolean(readStage1Output(root, id));
+  if (previousMode === "polluted") {
+    return { threadId: id, mode: "polluted", previousMode, changed: false, phase2Queued: false, reason };
+  }
+
+  state.threadMemoryModes[id] = "polluted";
+  writeMemoryState(root, state);
+  if (wasSelected || hasStage1Output) {
+    rebuildPhase2Inputs(root);
+    enqueuePhase2Job(root, new Date().toISOString());
+  }
+  return {
+    threadId: id,
+    mode: "polluted",
+    previousMode,
+    changed: true,
+    phase2Queued: Boolean(wasSelected || hasStage1Output),
+    reason,
+  };
 }
 
 export function listMemorySources(root) {
   ensureMemoryWorkspace(root);
+  const state = readMemoryState(root);
   return listStage1Outputs(root).map((output) => ({
     threadId: output.threadId,
     sourcePath: output.sourcePath,
     sourceUpdatedAt: output.sourceUpdatedAt,
     rolloutSummary: output.rolloutSummary,
     cwd: output.cwd,
-    memoryMode: output.memoryMode ?? "enabled",
+    memoryMode: effectiveStage1MemoryMode(state, output),
+    sourceMemoryMode: output.memoryMode ?? "enabled",
+    threadMemoryMode: normalizeStoredMemoryMode(state.threadMemoryModes?.[output.threadId]),
     usageCount: output.usageCount ?? 0,
     lastUsage: output.lastUsage,
   }));
@@ -1391,7 +1431,7 @@ function syncStateFromStage1Files(root, state) {
     next.stage1Outputs[output.threadId] = stage1Metadata(output);
   }
   next.phase2.selectedThreadIds = Object.values(next.stage1Outputs)
-    .filter((item) => item.memoryMode !== "disabled" && item.memoryMode !== "polluted")
+    .filter((item) => effectiveStage1MemoryMode(next, item) === "enabled")
     .map((item) => item.threadId);
   return next;
 }
@@ -1488,6 +1528,12 @@ function normalizeMemoryMode(value) {
 
 function normalizeStoredMemoryMode(value) {
   return MEMORY_MODES.has(value) ? value : "enabled";
+}
+
+function effectiveStage1MemoryMode(state, output) {
+  const sourceMode = normalizeStoredMemoryMode(output?.memoryMode);
+  if (sourceMode !== "enabled") return sourceMode;
+  return normalizeStoredMemoryMode(state?.threadMemoryModes?.[sanitizeId(output?.threadId)]);
 }
 
 function resetDirectoryInside(parent, target, label) {

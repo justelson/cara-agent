@@ -15,6 +15,7 @@ import {
   ensureZyraMemory,
   forgetZyraMemory,
   listZyraMemorySources,
+  markZyraThreadMemoryPolluted,
   parseZyraMemoryWorkerJson,
   prepareZyraPhase2Workspace,
   prepareZyraCurrentStage1Job,
@@ -445,6 +446,58 @@ function runMemoryResetRegression() {
   });
 }
 
+function runMemoryPollutionRegression() {
+  withTempRoot((root) => {
+    ensureZyraMemory(root);
+    const sessionFile = path.join(root, ".zyra", "sessions", "polluted.jsonl");
+    mkdirSync(path.dirname(sessionFile), { recursive: true });
+    writeFileSync(sessionFile, "", "utf8");
+    const runtime = {
+      root,
+      project: root,
+      session: {
+        sessionManager: {
+          getSessionId: () => "polluted-thread",
+          getSessionFile: () => sessionFile,
+          getCwd: () => root,
+          getEntries: () => [
+            {
+              type: "message",
+              timestamp: "2026-05-24T00:00:00.000Z",
+              message: { role: "user", content: "remember only clean turns should become durable memory" },
+            },
+          ],
+        },
+      },
+    };
+
+    upsertZyraStage1Memory(root, {
+      threadId: "polluted-thread",
+      sourcePath: sessionFile,
+      sourceUpdatedAt: "2026-05-24T00:00:00.000Z",
+      cwd: root,
+      rolloutSlug: "external_context_memory",
+      rolloutSummary: "pollutionuniqueroute should be removed after pollution.",
+      rawMemory: "- External context memory must not remain eligible once the thread is polluted.",
+    });
+    assert.equal(buildLayeredMemoryContext(root, { query: "pollutionuniqueroute" }).citation.rolloutIds.includes("polluted-thread"), true);
+    assert.equal(rebuildZyraMemory(root).some((item) => item.threadId === "polluted-thread"), true);
+
+    const polluted = markZyraThreadMemoryPolluted(root, "polluted-thread", "attached files");
+    assert.equal(polluted.changed, true);
+    assert.equal(polluted.phase2Queued, true);
+    assert.equal(listZyraMemorySources(root).find((source) => source.threadId === "polluted-thread")?.memoryMode, "polluted");
+    assert.equal(prepareZyraCurrentStage1Job(root, runtime).status, "skipped_memory_polluted");
+    assert.equal(buildLayeredMemoryContext(root, { query: "pollutionuniqueroute" }).citation.rolloutIds.includes("polluted-thread"), false);
+    assert.equal(rebuildZyraMemory(root).some((item) => item.threadId === "polluted-thread"), false);
+    assert.equal(claimZyraPhase2Job(root, { cooldownSeconds: 0 }).status, "claimed");
+
+    const repeat = markZyraThreadMemoryPolluted(root, "polluted-thread", "tool context");
+    assert.equal(repeat.changed, false);
+    assert.equal(repeat.phase2Queued, false);
+  });
+}
+
 async function runMemoryWorkerRepairRegression() {
   await withTempRootAsync(async (root) => {
     ensureZyraMemory(root);
@@ -758,6 +811,7 @@ await runMemoryWorkerConsolidationRegression();
 runPhase2SkillArtifactRegression();
 runMemoryControllerThreadModeRegression();
 runMemoryResetRegression();
+runMemoryPollutionRegression();
 await runMemoryWorkerRepairRegression();
 await runMemoryWorkerNoOutputRegression();
 await runMemoryStartupWorkerSkipsCurrentRegression();

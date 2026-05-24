@@ -19,6 +19,7 @@ import {
   ensureZyraMemory,
   failZyraPhase2Job,
   failZyraStage1Job,
+  markZyraThreadMemoryPolluted,
   normalizeZyraStage1WorkerOutput,
   parseZyraMemoryWorkerJson,
   prepareZyraCurrentStage1Job,
@@ -1022,21 +1023,73 @@ function selectedRuntimeModel(runtime) {
 }
 
 export async function runZyraPrompt(runtime, prompt, options = {}) {
+  const beforeEntryCount = sessionEntries(runtime).length;
   const expanded = expandFileMentions(runtime, prompt);
   injectLayeredMemory(runtime.session, defaults.root, expanded.text);
-  await runtime.session.prompt(expanded.text, { source: "interactive", images: options.images });
+  try {
+    await runtime.session.prompt(expanded.text, { source: "interactive", images: options.images });
+  } finally {
+    markRuntimeMemoryPollutedFromTurn(runtime, expanded, options, beforeEntryCount);
+  }
 }
 
 export async function runZyraPrintPrompt(runtime, prompt, options = {}) {
+  const beforeEntryCount = sessionEntries(runtime).length;
   const expanded = expandFileMentions(runtime, prompt);
   injectLayeredMemory(runtime.session, defaults.root, expanded.text);
-  await runtime.session.prompt(expanded.text, { source: "print", images: options.images });
+  try {
+    await runtime.session.prompt(expanded.text, { source: "print", images: options.images });
+  } finally {
+    markRuntimeMemoryPollutedFromTurn(runtime, expanded, options, beforeEntryCount);
+  }
   const lastMessage = runtime.session.state?.messages?.at?.(-1);
   if (lastMessage?.role !== "assistant") return "";
   if (lastMessage.stopReason === "error" || lastMessage.stopReason === "aborted") {
     throw new Error(lastMessage.errorMessage || `Request ${lastMessage.stopReason}`);
   }
   return extractAssistantText(lastMessage.content);
+}
+
+export function markRuntimeMemoryPollutedFromTurn(runtime, expanded = {}, options = {}, beforeEntryCount = 0) {
+  const reasons = externalContextReasons(runtime, expanded, options, beforeEntryCount);
+  if (!reasons.length) return { changed: false, reason: "no external context" };
+  const threadId = runtime?.session?.sessionManager?.getSessionId?.();
+  const sessionFile = runtime?.session?.sessionManager?.getSessionFile?.();
+  if (!threadId || !sessionFile) {
+    return { changed: false, reason: "no persisted thread" };
+  }
+  return markZyraThreadMemoryPolluted(defaults.root, threadId, [...new Set(reasons)].join(", "));
+}
+
+function externalContextReasons(runtime, expanded = {}, options = {}, beforeEntryCount = 0) {
+  const reasons = [];
+  if (Array.isArray(expanded.attachedFiles) && expanded.attachedFiles.length > 0) {
+    reasons.push("attached files");
+  }
+  if (Array.isArray(options.images) && options.images.length > 0) {
+    reasons.push("images");
+  }
+  if (newEntriesIncludeToolContext(sessionEntries(runtime).slice(Math.max(0, beforeEntryCount)))) {
+    reasons.push("tool context");
+  }
+  return reasons;
+}
+
+function sessionEntries(runtime) {
+  const entries = runtime?.session?.sessionManager?.getEntries?.();
+  return Array.isArray(entries) ? entries : [];
+}
+
+function newEntriesIncludeToolContext(entries = []) {
+  return entries.some((entry) => {
+    if (entry?.type === "tool_execution_start" || entry?.type === "tool_execution_update" || entry?.type === "tool_execution_end") {
+      return true;
+    }
+    const message = entry?.message;
+    if (message?.role === "bashExecution" || message?.role === "tool") return true;
+    const content = Array.isArray(message?.content) ? message.content : [];
+    return content.some((part) => ["toolCall", "toolResult", "function_call", "function_call_output"].includes(part?.type));
+  });
 }
 
 function extractAssistantText(content) {

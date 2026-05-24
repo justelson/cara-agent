@@ -7,6 +7,7 @@ import {
   formatSearchResults,
   getThreadMemoryMode,
   listMemorySources,
+  markThreadMemoryModePolluted,
   readMemoryState,
   rebuildPhase2Inputs,
   resetMemoryWorkspace,
@@ -64,6 +65,16 @@ export function createMemoryController({ root, runtime, consolidate } = {}) {
       return {
         ...result,
         message: `Memory mode for ${result.threadId}: ${result.mode}`,
+      };
+    },
+    markPolluted: (reason = "external context", threadId = currentThreadId(runtime)) => {
+      const resolvedThreadId = normalizeThreadId(threadId);
+      const result = markThreadMemoryModePolluted(memoryRoot, resolvedThreadId, reason);
+      return {
+        ...result,
+        message: result.changed
+          ? `Memory mode for ${result.threadId}: polluted (${reason})`
+          : `Memory mode for ${result.threadId}: polluted`,
       };
     },
     consolidate: async (options = {}) => {

@@ -16,6 +16,7 @@ import {
   getMemoryPaths,
   getThreadMemoryMode,
   listMemorySources,
+  markThreadMemoryModePolluted,
   markGlobalPhase2JobFailed,
   markGlobalPhase2JobSucceeded,
   markStage1JobFailed,
@@ -153,6 +154,10 @@ export function getZyraThreadMemoryMode(root, threadId) {
 
 export function setZyraThreadMemoryMode(root, threadId, memoryMode) {
   return setThreadMemoryMode(root, threadId, memoryMode);
+}
+
+export function markZyraThreadMemoryPolluted(root, threadId, reason = "external context") {
+  return markThreadMemoryModePolluted(root, threadId, reason);
 }
 
 export function rebuildZyraMemory(root) {
