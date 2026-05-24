@@ -1,29 +1,16 @@
-import {
-  existsSync,
-  readFileSync,
-  readdirSync,
-} from "node:fs";
 import path from "node:path";
 import {
   createEmptyMemoryState,
   createMemoryResetState,
   createMemoryStateRuntime,
   effectiveStage1MemoryMode,
-  normalizeMemoryMode,
   normalizeStoredMemoryMode,
   readMemoryStateFile,
   writeMemoryStateFile,
 } from "./zyra-memory-state.mjs";
-import {
-  renderConsolidationInstructions,
-  renderPhase2WorkerPrompt,
-  renderStage1WorkerPrompt,
-} from "./zyra-memory-prompts.mjs";
-import {
-  createMemoryReadPath,
-  renderSkillsForPrompt,
-} from "./zyra-memory-read.mjs";
+import { createMemoryReadPath } from "./zyra-memory-read.mjs";
 import { createMemoryBootstrapPath } from "./zyra-memory-bootstrap.mjs";
+import { createMemoryModePath } from "./zyra-memory-modes.mjs";
 import { createMemoryPhase2Path } from "./zyra-memory-phase2.mjs";
 import { createMemorySessionPath } from "./zyra-memory-sessions.mjs";
 import { createMemoryStage1Path } from "./zyra-memory-stage1.mjs";
@@ -32,6 +19,7 @@ import {
   normalizeStage1WorkerOutput as normalizeStage1WorkerOutputPayload,
   parseMemoryWorkerJson as parseMemoryWorkerJsonPayload,
 } from "./zyra-memory-worker-io.mjs";
+import { createMemoryWorkerPromptPath } from "./zyra-memory-worker-prompts.mjs";
 import { createMemoryWorkspacePath } from "./zyra-memory-workspace.mjs";
 
 export { STATE_VERSION } from "./zyra-memory-state.mjs";
@@ -190,6 +178,17 @@ function memoryStage1OutputPath() {
   });
 }
 
+function memoryModePath() {
+  return createMemoryModePath({
+    ensureMemoryWorkspace,
+    readMemoryState,
+    memoryState,
+    readStage1Output,
+    upsertStage1Output,
+    rebuildPhase2Inputs,
+  });
+}
+
 function memoryReadPath() {
   return createMemoryReadPath({
     ensureMemoryWorkspace,
@@ -204,6 +203,15 @@ function memoryReadPath() {
     stage1Metadata,
     effectiveStage1MemoryMode,
     normalizeStoredMemoryMode,
+  });
+}
+
+function memoryWorkerPromptPath() {
+  return createMemoryWorkerPromptPath({
+    ensureMemoryWorkspace,
+    getMemoryPaths,
+    prepareMemoryConsolidation,
+    rebuildPhase2Inputs,
   });
 }
 
@@ -383,48 +391,23 @@ export function recordMemoryUsage(root, threadIds = []) {
 }
 
 export function setMemoryMode(root, threadId, memoryMode) {
-  const normalizedMode = normalizeMemoryMode(memoryMode);
-  const output = readStage1Output(root, threadId);
-  if (!output) return false;
-  output.memoryMode = normalizedMode;
-  upsertStage1Output(root, output);
-  return true;
+  return memoryModePath().setMemoryMode(root, threadId, memoryMode);
 }
 
 export function forgetMemory(root, threadId) {
-  return setMemoryMode(root, threadId, "disabled");
+  return memoryModePath().forgetMemory(root, threadId);
 }
 
 export function getThreadMemoryMode(root, threadId) {
-  ensureMemoryWorkspace(root);
-  const id = sanitizeId(threadId);
-  if (!id) return "enabled";
-  const mode = readMemoryState(root).threadMemoryModes?.[id];
-  return normalizeStoredMemoryMode(mode);
+  return memoryModePath().getThreadMemoryMode(root, threadId);
 }
 
 export function setThreadMemoryMode(root, threadId, memoryMode) {
-  ensureMemoryWorkspace(root);
-  const id = sanitizeId(threadId);
-  if (!id) throw new Error("Thread memory mode requires a thread id.");
-  const result = memoryState(root).setThreadMemoryMode(id, memoryMode, { hasStage1Output: Boolean(readStage1Output(root, id)) });
-  if (result.needsPhase2Queue) {
-    rebuildPhase2Inputs(root);
-    memoryState(root).enqueueGlobalPhase2(new Date().toISOString());
-  }
-  return result;
+  return memoryModePath().setThreadMemoryMode(root, threadId, memoryMode);
 }
 
 export function markThreadMemoryModePolluted(root, threadId, reason = "external context") {
-  ensureMemoryWorkspace(root);
-  const id = sanitizeId(threadId);
-  if (!id) throw new Error("Thread memory pollution requires a thread id.");
-  const result = memoryState(root).markThreadMemoryModePolluted(id, reason, { hasStage1Output: Boolean(readStage1Output(root, id)) });
-  if (result.needsPhase2Queue) {
-    rebuildPhase2Inputs(root);
-    memoryState(root).enqueueGlobalPhase2(new Date().toISOString());
-  }
-  return { ...result, phase2Queued: Boolean(result.needsPhase2Queue) };
+  return memoryModePath().markThreadMemoryModePolluted(root, threadId, reason);
 }
 
 export function listMemorySources(root) {
@@ -440,43 +423,15 @@ export function prepareCurrentSessionStage1Job(root, runtime, options = {}) {
 }
 
 export function buildConsolidationInstructions(root, runtime, globalAgentFiles = []) {
-  const prep = prepareMemoryConsolidation(root, runtime);
-  const paths = getMemoryPaths(root);
-  return renderConsolidationInstructions({ prep, paths, globalAgentFiles });
+  return memoryWorkerPromptPath().buildConsolidationInstructions(root, runtime, globalAgentFiles);
 }
 
 export function buildStage1WorkerPrompt(prep) {
-  return renderStage1WorkerPrompt(prep);
+  return memoryWorkerPromptPath().buildStage1WorkerPrompt(prep);
 }
 
 export function buildPhase2WorkerPrompt(root, options = {}) {
-  ensureMemoryWorkspace(root);
-  const paths = getMemoryPaths(root);
-  const outputs = rebuildPhase2Inputs(root, options);
-  const workspaceDiff = existsSync(paths.workspaceDiff)
-    ? readText(paths.workspaceDiff).trim()
-    : "# Memory Workspace Diff\n\n## Status\n- not generated\n";
-  const skills = renderSkillsForPrompt(paths.skills);
-  const rolloutSummaries = safeReadDir(paths.rolloutSummaries)
-    .filter((file) => file.endsWith(".md"))
-    .sort()
-    .map((file) => {
-      const fullPath = path.join(paths.rolloutSummaries, file);
-      return [`## ${file}`, readText(fullPath).trim()].join("\n");
-    })
-    .join("\n\n---\n\n");
-
-  return renderPhase2WorkerPrompt({
-    paths,
-    outputs,
-    workspaceDiff,
-    skills,
-    rolloutSummaries,
-    summary: readText(paths.summary).trim(),
-    handbook: readText(paths.handbook).trim(),
-    rawMemories: readText(paths.rawMemories).trim(),
-    options,
-  });
+  return memoryWorkerPromptPath().buildPhase2WorkerPrompt(root, options);
 }
 
 export function parseMemoryWorkerJson(text, requiredKeys = []) {
@@ -525,28 +480,4 @@ function stage1File(stage1Dir, threadId) {
 
 function rolloutSummaryFileName(output) {
   return memoryStage1OutputPath().rolloutSummaryFileName(output);
-}
-
-function sanitizeId(value) {
-  return String(value ?? "")
-    .trim()
-    .replace(/[^a-zA-Z0-9_.-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 120);
-}
-
-function safeReadDir(dir) {
-  try {
-    return readdirSync(dir).sort();
-  } catch {
-    return [];
-  }
-}
-
-function readText(file) {
-  try {
-    return readFileSync(file, "utf8");
-  } catch {
-    return "";
-  }
 }
