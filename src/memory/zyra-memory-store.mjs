@@ -8,16 +8,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import path from "node:path";
 import {
-  GLOBAL_PHASE2_JOB_KEY,
-  JOB_KIND_PHASE2,
-  JOB_KIND_STAGE1,
   createEmptyMemoryState,
   createMemoryResetState,
+  createMemoryStateRuntime,
+  effectiveStage1MemoryMode,
   normalizeMemoryMode,
-  normalizeMemoryState,
   normalizeStoredMemoryMode,
   readMemoryStateFile,
   writeMemoryStateFile,
@@ -166,6 +163,10 @@ export function writeMemoryState(root, state) {
   return writeMemoryStateFile(getMemoryPaths(root).state, state);
 }
 
+function memoryState(root) {
+  return createMemoryStateRuntime(getMemoryPaths(root).state);
+}
+
 export function upsertStage1Output(root, output) {
   ensureMemoryWorkspace(root);
   const paths = getMemoryPaths(root);
@@ -196,13 +197,7 @@ export function upsertStage1Output(root, output) {
   mkdirSync(paths.stage1, { recursive: true });
   writeFileSync(stage1File(paths.stage1, threadId), `${JSON.stringify(record, null, 2)}\n`, "utf8");
 
-  const state = readMemoryState(root);
-  const threadMemoryMode = normalizeStoredMemoryMode(state.threadMemoryModes?.[threadId]);
-  state.stage1Outputs[threadId] = stage1Metadata(record);
-  if (!state.phase2.selectedThreadIds.includes(threadId) && record.memoryMode === "enabled" && threadMemoryMode === "enabled") {
-    state.phase2.selectedThreadIds.push(threadId);
-  }
-  writeMemoryState(root, state);
+  memoryState(root).upsertStage1OutputMetadata(stage1Metadata(record));
   rebuildPhase2Inputs(root);
   return record;
 }
@@ -290,8 +285,7 @@ export function claimStage1JobsForStartup(root, params = {}) {
     if (minIdleMs && nowMs - sourceUpdatedAtMs < minIdleMs) continue;
 
     const threadId = sanitizeId(source.threadId);
-    const state = readMemoryState(root);
-    if (normalizeStoredMemoryMode(state.threadMemoryModes?.[threadId]) !== "enabled") continue;
+    if (memoryState(root).getThreadMemoryMode(threadId) !== "enabled") continue;
     const existing = readStage1Output(root, threadId);
     if (existing && Date.parse(existing.sourceUpdatedAt) >= sourceUpdatedAtMs) continue;
 
@@ -307,43 +301,11 @@ export function claimStage1JobsForStartup(root, params = {}) {
 
 export function tryClaimStage1Job(root, source, options = {}) {
   ensureMemoryWorkspace(root);
-  const now = normalizeIso(options.now) ?? new Date().toISOString();
-  const nowMs = Date.parse(now);
-  const threadId = sanitizeId(source.threadId ?? sessionIdFromPath(source.sourcePath));
-  const state = readMemoryState(root);
-  const threadMemoryMode = normalizeStoredMemoryMode(state.threadMemoryModes?.[threadId]);
-  if (threadMemoryMode !== "enabled") {
-    return { status: `skipped_memory_${threadMemoryMode}`, threadId, memoryMode: threadMemoryMode };
-  }
-  const jobs = state.jobs[JOB_KIND_STAGE1] ?? {};
-  const existing = jobs[threadId];
-  if (["running", "prepared"].includes(existing?.status) && Date.parse(existing.leaseUntil ?? 0) > nowMs) {
-    return { status: "skipped_running", threadId };
-  }
-  if (existing?.retryRemaining === 0) {
-    return { status: "skipped_retry_exhausted", threadId };
-  }
-  if (existing?.retryAt && Date.parse(existing.retryAt) > nowMs) {
-    return { status: "skipped_retry_backoff", threadId };
-  }
-
-  const ownershipToken = randomUUID();
-  const job = {
-    kind: JOB_KIND_STAGE1,
-    jobKey: threadId,
-    status: "running",
-    workerId: options.workerId ?? "zyra-local",
-    ownershipToken,
-    startedAt: now,
-    leaseUntil: new Date(nowMs + Math.max(1, Number(options.leaseSeconds ?? DEFAULT_STAGE1_LEASE_SECONDS)) * 1000).toISOString(),
-    retryRemaining: Number.isFinite(existing?.retryRemaining) ? existing.retryRemaining : DEFAULT_RETRY_REMAINING,
-    sourcePath: source.sourcePath ? path.resolve(source.sourcePath) : "",
-    sourceUpdatedAt: normalizeIso(source.sourceUpdatedAt) ?? now,
-    cwd: source.cwd ? path.resolve(source.cwd) : "",
-  };
-  state.jobs[JOB_KIND_STAGE1] = { ...jobs, [threadId]: job };
-  writeMemoryState(root, state);
-  return { status: "claimed", threadId, ownershipToken, source: { ...source, threadId }, job };
+  return memoryState(root).tryClaimStage1Job(source, {
+    ...options,
+    leaseSeconds: options.leaseSeconds ?? DEFAULT_STAGE1_LEASE_SECONDS,
+    retryRemaining: DEFAULT_RETRY_REMAINING,
+  });
 }
 
 export function prepareClaimedStage1Inputs(root, claims, options = {}) {
@@ -423,92 +385,26 @@ export function markStage1JobFailed(root, claim, error, options = {}) {
 
 export function claimGlobalPhase2Job(root, options = {}) {
   ensureMemoryWorkspace(root);
-  const now = normalizeIso(options.now) ?? new Date().toISOString();
-  const nowMs = Date.parse(now);
-  const state = readMemoryState(root);
-  const jobs = state.jobs[JOB_KIND_PHASE2] ?? {};
-  const existing = jobs[GLOBAL_PHASE2_JOB_KEY];
   const inputWatermark = phase2InputWatermark(root);
-  if (existing?.status === "running" && Date.parse(existing.leaseUntil ?? 0) > nowMs) {
-    return { status: "skipped_running" };
-  }
-  if (existing?.retryRemaining === 0) {
-    return { status: "skipped_retry_unavailable" };
-  }
-  if (existing?.retryAt && Date.parse(existing.retryAt) > nowMs) {
-    return { status: "skipped_retry_unavailable" };
-  }
-  if (existing?.finishedAt && existing.status === "succeeded") {
-    const cooldownMs = Math.max(0, Number(options.cooldownSeconds ?? DEFAULT_PHASE2_COOLDOWN_SECONDS)) * 1000;
-    const noNewInputs = Number(existing.lastSuccessWatermark ?? 0) >= inputWatermark;
-    if (!options.force && noNewInputs) {
-      if (cooldownMs && nowMs - Date.parse(existing.finishedAt) < cooldownMs) {
-        return { status: "skipped_cooldown" };
-      }
-    }
-  }
-
-  const ownershipToken = randomUUID();
-  const job = {
-    kind: JOB_KIND_PHASE2,
-    jobKey: GLOBAL_PHASE2_JOB_KEY,
-    status: "running",
-    workerId: options.workerId ?? "zyra-local",
-    ownershipToken,
-    startedAt: now,
-    leaseUntil: new Date(nowMs + Math.max(1, Number(options.leaseSeconds ?? DEFAULT_PHASE2_LEASE_SECONDS)) * 1000).toISOString(),
-    retryRemaining: Number.isFinite(existing?.retryRemaining) ? existing.retryRemaining : DEFAULT_RETRY_REMAINING,
-    inputWatermark,
-    lastSuccessWatermark: existing?.lastSuccessWatermark,
-  };
-  state.jobs[JOB_KIND_PHASE2] = { ...jobs, [GLOBAL_PHASE2_JOB_KEY]: job };
-  writeMemoryState(root, state);
-  return { status: "claimed", ownershipToken, inputWatermark, job };
+  return memoryState(root).claimGlobalPhase2Job(inputWatermark, {
+    ...options,
+    cooldownSeconds: options.cooldownSeconds ?? DEFAULT_PHASE2_COOLDOWN_SECONDS,
+    leaseSeconds: options.leaseSeconds ?? DEFAULT_PHASE2_LEASE_SECONDS,
+    retryRemaining: DEFAULT_RETRY_REMAINING,
+  });
 }
 
 export function markGlobalPhase2JobSucceeded(root, claim, selectedOutputs = listStage1Outputs(root, { enabledOnly: true })) {
-  const state = readMemoryState(root);
-  const job = state.jobs[JOB_KIND_PHASE2]?.[GLOBAL_PHASE2_JOB_KEY];
-  if (!job || job.ownershipToken !== claim.ownershipToken) return false;
   const outputs = rebuildPhase2Inputs(root);
-  const next = readMemoryState(root);
-  const completedAt = new Date().toISOString();
-  next.phase2.selectedThreadIds = (selectedOutputs.length ? selectedOutputs : outputs).map((item) => item.threadId);
-  next.phase2.lastSuccessAt = completedAt;
-  next.phase2.lastSuccessWatermark = claim.inputWatermark ?? phase2InputWatermark(root);
-  next.jobs[JOB_KIND_PHASE2] = {
-    ...(next.jobs[JOB_KIND_PHASE2] ?? {}),
-    [GLOBAL_PHASE2_JOB_KEY]: {
-      ...job,
-      status: "succeeded",
-      finishedAt: completedAt,
-      leaseUntil: undefined,
-      lastSuccessWatermark: next.phase2.lastSuccessWatermark,
-    },
-  };
-  writeMemoryState(root, next);
-  return true;
+  const selected = (selectedOutputs.length ? selectedOutputs : outputs).map((item) => item.threadId);
+  return memoryState(root).markGlobalPhase2JobSucceeded(claim, selected, claim.inputWatermark ?? phase2InputWatermark(root));
 }
 
 export function markGlobalPhase2JobFailed(root, claim, error, options = {}) {
-  const state = readMemoryState(root);
-  const job = state.jobs[JOB_KIND_PHASE2]?.[GLOBAL_PHASE2_JOB_KEY];
-  if (!job || job.ownershipToken !== claim.ownershipToken) return false;
-  const retryRemaining = Math.max(0, Number(job.retryRemaining ?? DEFAULT_RETRY_REMAINING) - 1);
-  const nowMs = Date.now();
-  state.jobs[JOB_KIND_PHASE2][GLOBAL_PHASE2_JOB_KEY] = {
-    ...job,
-    status: "failed",
-    finishedAt: new Date(nowMs).toISOString(),
-    leaseUntil: undefined,
-    retryRemaining,
-    retryAt: retryRemaining > 0
-      ? new Date(nowMs + Math.max(1, Number(options.retryDelaySeconds ?? DEFAULT_RETRY_DELAY_SECONDS)) * 1000).toISOString()
-      : undefined,
-    lastError: error instanceof Error ? error.message : String(error ?? "phase-2 failed"),
-  };
-  writeMemoryState(root, state);
-  return true;
+  return memoryState(root).markGlobalPhase2JobFailed(claim, error, {
+    ...options,
+    retryDelaySeconds: options.retryDelaySeconds ?? DEFAULT_RETRY_DELAY_SECONDS,
+  });
 }
 
 export function prepareMemoryWorkspace(root) {
@@ -885,46 +781,24 @@ export function setThreadMemoryMode(root, threadId, memoryMode) {
   ensureMemoryWorkspace(root);
   const id = sanitizeId(threadId);
   if (!id) throw new Error("Thread memory mode requires a thread id.");
-  const mode = normalizeMemoryMode(memoryMode);
-  const state = readMemoryState(root);
-  const previousMode = normalizeStoredMemoryMode(state.threadMemoryModes?.[id]);
-  const wasSelected = state.phase2.selectedThreadIds?.includes(id);
-  const hasStage1Output = Boolean(state.stage1Outputs?.[id]) || Boolean(readStage1Output(root, id));
-  state.threadMemoryModes[id] = mode;
-  writeMemoryState(root, state);
-  if (previousMode !== mode && (wasSelected || hasStage1Output)) {
+  const result = memoryState(root).setThreadMemoryMode(id, memoryMode, { hasStage1Output: Boolean(readStage1Output(root, id)) });
+  if (result.needsPhase2Queue) {
     rebuildPhase2Inputs(root);
-    enqueuePhase2Job(root, new Date().toISOString());
+    memoryState(root).enqueueGlobalPhase2(new Date().toISOString());
   }
-  return { threadId: id, mode, previousMode, changed: previousMode !== mode };
+  return result;
 }
 
 export function markThreadMemoryModePolluted(root, threadId, reason = "external context") {
   ensureMemoryWorkspace(root);
   const id = sanitizeId(threadId);
   if (!id) throw new Error("Thread memory pollution requires a thread id.");
-  const state = readMemoryState(root);
-  const previousMode = normalizeStoredMemoryMode(state.threadMemoryModes?.[id]);
-  const wasSelected = state.phase2.selectedThreadIds?.includes(id);
-  const hasStage1Output = Boolean(state.stage1Outputs?.[id]) || Boolean(readStage1Output(root, id));
-  if (previousMode === "polluted") {
-    return { threadId: id, mode: "polluted", previousMode, changed: false, phase2Queued: false, reason };
-  }
-
-  state.threadMemoryModes[id] = "polluted";
-  writeMemoryState(root, state);
-  if (wasSelected || hasStage1Output) {
+  const result = memoryState(root).markThreadMemoryModePolluted(id, reason, { hasStage1Output: Boolean(readStage1Output(root, id)) });
+  if (result.needsPhase2Queue) {
     rebuildPhase2Inputs(root);
-    enqueuePhase2Job(root, new Date().toISOString());
+    memoryState(root).enqueueGlobalPhase2(new Date().toISOString());
   }
-  return {
-    threadId: id,
-    mode: "polluted",
-    previousMode,
-    changed: true,
-    phase2Queued: Boolean(wasSelected || hasStage1Output),
-    reason,
-  };
+  return { ...result, phase2Queued: Boolean(result.needsPhase2Queue) };
 }
 
 export function listMemorySources(root) {
@@ -1362,15 +1236,10 @@ function stage1Metadata(output) {
 }
 
 function syncStateFromStage1Files(root, state) {
-  const next = normalizeMemoryState(state);
-  next.stage1Outputs = {};
-  for (const output of listStage1Outputs(root)) {
-    next.stage1Outputs[output.threadId] = stage1Metadata(output);
-  }
-  next.phase2.selectedThreadIds = Object.values(next.stage1Outputs)
-    .filter((item) => effectiveStage1MemoryMode(next, item) === "enabled")
-    .map((item) => item.threadId);
-  return next;
+  const metadata = listStage1Outputs(root).map((output) => stage1Metadata(output));
+  const runtime = memoryState(root);
+  runtime.write(state);
+  return runtime.syncStage1OutputMetadata(metadata);
 }
 
 function normalizePhase2SkillPlan(paths, output) {
@@ -1453,12 +1322,6 @@ function normalizeSkillFilePath(value) {
     throw new Error(`Invalid memory skill support file path: ${value}`);
   }
   return relative;
-}
-
-function effectiveStage1MemoryMode(state, output) {
-  const sourceMode = normalizeStoredMemoryMode(output?.memoryMode);
-  if (sourceMode !== "enabled") return sourceMode;
-  return normalizeStoredMemoryMode(state?.threadMemoryModes?.[sanitizeId(output?.threadId)]);
 }
 
 function resetDirectoryInside(parent, target, label) {
@@ -1605,49 +1468,15 @@ function previousCharBoundary(value, maxBytes) {
 }
 
 function updateStage1Job(root, threadId, ownershipToken, patch) {
-  const state = readMemoryState(root);
-  const jobs = state.jobs[JOB_KIND_STAGE1] ?? {};
-  const job = jobs[threadId];
-  if (!job || job.ownershipToken !== ownershipToken) return false;
-  const nextJob = { ...job, ...patch };
-  for (const [key, value] of Object.entries(nextJob)) {
-    if (value === undefined) delete nextJob[key];
-  }
-  state.jobs[JOB_KIND_STAGE1] = { ...jobs, [threadId]: nextJob };
-  writeMemoryState(root, state);
-  return true;
+  return memoryState(root).updateStage1Job(threadId, ownershipToken, patch);
 }
 
 function getStage1JobForToken(root, threadId, ownershipToken) {
-  const job = readMemoryState(root).jobs[JOB_KIND_STAGE1]?.[threadId];
-  if (!job || job.ownershipToken !== ownershipToken) return undefined;
-  return job;
+  return memoryState(root).getStage1JobForToken(threadId, ownershipToken);
 }
 
 function enqueuePhase2Job(root, inputUpdatedAt) {
-  const state = readMemoryState(root);
-  const jobs = state.jobs[JOB_KIND_PHASE2] ?? {};
-  const existing = jobs[GLOBAL_PHASE2_JOB_KEY] ?? {};
-  const watermark = Math.max(Number(existing.inputWatermark ?? 0), Date.parse(inputUpdatedAt ?? 0) || Date.now());
-  state.jobs[JOB_KIND_PHASE2] = {
-    ...jobs,
-    [GLOBAL_PHASE2_JOB_KEY]: {
-      kind: JOB_KIND_PHASE2,
-      jobKey: GLOBAL_PHASE2_JOB_KEY,
-      status: existing.status === "running" ? existing.status : "queued",
-      retryRemaining: Number.isFinite(existing.retryRemaining) ? existing.retryRemaining : DEFAULT_RETRY_REMAINING,
-      inputWatermark: watermark,
-      lastSuccessWatermark: existing.lastSuccessWatermark,
-      queuedAt: new Date().toISOString(),
-      ...(existing.status === "running" ? {
-        workerId: existing.workerId,
-        ownershipToken: existing.ownershipToken,
-        startedAt: existing.startedAt,
-        leaseUntil: existing.leaseUntil,
-      } : {}),
-    },
-  };
-  writeMemoryState(root, state);
+  memoryState(root).enqueueGlobalPhase2(inputUpdatedAt);
 }
 
 function phase2InputWatermark(root) {
