@@ -33,6 +33,9 @@ export class ZyraComponentHost {
     this.autoRender = Boolean(options.autoRender);
     this.useAlternateScreen = options.useAlternateScreen ?? false;
     this.alternateScreenActive = false;
+    this.contentDirty = true;
+    this.contentLinesCache = [];
+    this.contentCacheWidth = 0;
   }
 
   width() {
@@ -41,6 +44,10 @@ export class ZyraComponentHost {
 
   height() {
     return terminalRenderHeight(this.output);
+  }
+
+  markContentDirty() {
+    this.contentDirty = true;
   }
 
   setInteractive(value) {
@@ -81,6 +88,7 @@ export class ZyraComponentHost {
   append(component) {
     component?.setHost?.(this);
     this.components.push(component);
+    this.contentDirty = true;
     this.invalidate();
     return component;
   }
@@ -94,17 +102,22 @@ export class ZyraComponentHost {
   remove(key) {
     const before = this.components.length;
     this.components = this.components.filter((component) => component.key !== key);
-    if (this.components.length !== before) this.invalidate();
+    if (this.components.length !== before) {
+      this.contentDirty = true;
+      this.invalidate();
+    }
   }
 
   clearComponents(options = {}) {
     this.components = [];
+    this.contentDirty = true;
     this.invalidate({ force: true, clear: Boolean(options.clear) });
   }
 
   replaceComponents(components = [], options = {}) {
     this.components = components.filter(Boolean);
     for (const component of this.components) component?.setHost?.(this);
+    this.contentDirty = true;
     this.invalidate({ force: true, clear: Boolean(options.clear) });
   }
 
@@ -113,7 +126,10 @@ export class ZyraComponentHost {
       this.clearRendered();
     }
     this.output.write(String(text ?? ""));
-    if (this.interactive) this.invalidate({ force: true });
+    if (this.interactive) {
+      this.contentDirty = true;
+      this.invalidate({ force: true });
+    }
   }
 
   printLines(lines = []) {
@@ -127,6 +143,7 @@ export class ZyraComponentHost {
   }
 
   invalidate(options = {}) {
+    if (!options.fixedOnly) this.contentDirty = true;
     if (!this.interactive) {
       if (!this.autoRender) return;
       this.render(options);
@@ -149,6 +166,7 @@ export class ZyraComponentHost {
     const width = this.width();
     const height = this.height();
     const resized = width !== this.previousWidth || height !== this.previousHeight;
+    if (resized) this.contentDirty = true;
     this.previousWidth = width;
     this.previousHeight = height;
 
@@ -176,6 +194,7 @@ export class ZyraComponentHost {
   }
 
   renderContentLines(width = this.width()) {
+    if (!this.contentDirty && this.contentCacheWidth === width) return this.contentLinesCache;
     const lines = [];
     let previousSpacingKind = "";
     for (const component of this.components) {
@@ -187,7 +206,11 @@ export class ZyraComponentHost {
       lines.push(...rendered);
       if (rendered.length > 0) previousSpacingKind = component.spacingKind ?? "";
     }
-    return renderLinesWithinWidth(lines, width);
+    const renderedLines = renderLinesWithinWidth(lines, width);
+    this.contentLinesCache = renderedLines;
+    this.contentCacheWidth = width;
+    this.contentDirty = false;
+    return renderedLines;
   }
 
   renderFixedLines(width = this.width()) {

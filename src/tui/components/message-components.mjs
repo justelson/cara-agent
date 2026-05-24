@@ -111,21 +111,29 @@ export function renderToolBlock(toolState, theme = fallbackTheme, width = 100) {
   const state = isError ? "error" : isDone ? "done" : "running";
   const title = toolState.toolName ?? "tool";
   const rows = [{ kind: "title", title, state, stateLabel }];
-  const args = summarizeToolArgs(toolState.args ?? toolState.arguments);
+  const args = summarizeToolArgs(toolState.args ?? toolState.arguments, { toolName: title, state });
   if (args) rows.push(...args.flatMap((line) => splitDisplayLines(line)).map((line) => ({ kind: "args", text: line })));
   const outputText = summarizeToolResult(toolState.result ?? toolState.partialResult);
-  if (outputText) {
+  if (outputText.length > 0) {
     rows.push(...outputText.flatMap((line) => splitDisplayLines(line)).map((line) => ({ kind: "output", text: line })));
+  } else if (state === "running") {
+    rows.push({ kind: "hint", text: "status started" });
   }
   const terminalWidth = Math.max(24, Number(width) || 100);
   const surface = toolSurfaceForState(state, resolvedTheme);
   return ["", ...rows.map((row) => renderToolRow(row, resolvedTheme, terminalWidth, surface)), ""];
 }
 
-export function summarizeToolArgs(args) {
+export function summarizeToolArgs(args, context = {}) {
   if (!args || typeof args !== "object") return [];
-  const important = args.path ?? args.filePath ?? args.command ?? args.cmd ?? args.cwd;
-  if (typeof important === "string" && important.length > 0) return [truncatePlain(important, 120)];
+  const toolName = normalizeToolName(context.toolName);
+  const rows = [];
+  const targetPath = firstStringValue(args, ["path", "filePath", "file_path", "targetPath", "target_file", "filename"]);
+  const command = firstStringValue(args, ["command", "cmd"]);
+  if (targetPath) rows.push(`path ${truncatePlain(targetPath, 116)}`);
+  if (command) rows.push(`${toolName.includes("bash") ? "cmd " : "run "} ${truncatePlain(command, 116)}`);
+  if (isFileMutationTool(toolName, args)) rows.push(...summarizeMutationArgs(toolName, args));
+  if (rows.length > 0) return rows.slice(0, 7);
   const values = Object.entries(args).filter(([, value]) => value !== undefined && value !== null && value !== "");
   const entries = values.slice(0, 4).map(([key, value]) => `${key}: ${formatToolValue(value)}`);
   if (values.length > entries.length) {
@@ -145,6 +153,99 @@ export function summarizeToolResult(result) {
     visible.push(`... ${lines.length - visible.length} more output line${lines.length - visible.length === 1 ? "" : "s"}`);
   }
   return visible;
+}
+
+function summarizeMutationArgs(toolName, args = {}) {
+  const rows = [];
+  const oldText = firstStringValue(args, ["oldString", "old_string", "oldStr", "old_str", "from", "before"]);
+  const newText = firstStringValue(args, ["newString", "new_string", "newStr", "new_str", "to", "after"]);
+  const content = firstStringValue(args, ["content", "fileContent", "file_content", "text", "body"]);
+  const patch = firstStringValue(args, ["patch", "diff"]);
+  const edits = Array.isArray(args.edits) ? args.edits : Array.isArray(args.replacements) ? args.replacements : [];
+
+  if (oldText !== undefined || newText !== undefined) {
+    rows.push(`edit replace ${formatTextSize(oldText)} -> ${formatTextSize(newText)}`);
+    const oldPreview = previewText(oldText);
+    const newPreview = previewText(newText);
+    if (oldPreview) rows.push(`from ${oldPreview}`);
+    if (newPreview) rows.push(`to   ${newPreview}`);
+    return rows;
+  }
+
+  if (content !== undefined) {
+    const verb = toolName.includes("append") ? "append" : toolName.includes("edit") ? "edit" : "write";
+    rows.push(`${verb} ${formatTextSize(content)}`);
+    const preview = previewText(content);
+    if (preview) rows.push(`text ${preview}`);
+    return rows;
+  }
+
+  if (patch !== undefined) {
+    rows.push(`patch ${formatPatchSize(patch)}`);
+    const preview = previewText(patch);
+    if (preview) rows.push(`diff ${preview}`);
+    return rows;
+  }
+
+  if (edits.length > 0) {
+    rows.push(`edit ${edits.length} replacement${edits.length === 1 ? "" : "s"}`);
+    for (const edit of edits.slice(0, 3)) {
+      const editPath = firstStringValue(edit, ["path", "filePath", "file_path"]);
+      const editOld = firstStringValue(edit, ["oldString", "old_string", "oldStr", "old_str", "from", "before"]);
+      const editNew = firstStringValue(edit, ["newString", "new_string", "newStr", "new_str", "to", "after"]);
+      const label = editPath ? truncatePlain(editPath, 42) : "change";
+      rows.push(`${label} ${formatTextSize(editOld)} -> ${formatTextSize(editNew)}`);
+    }
+  }
+
+  return rows;
+}
+
+function isFileMutationTool(toolName, args = {}) {
+  if (/(edit|write|patch|replace|append|create)/i.test(toolName)) return true;
+  return Boolean(
+    firstStringValue(args, ["oldString", "old_string", "oldStr", "old_str", "newString", "new_string", "newStr", "new_str"])
+    || firstStringValue(args, ["content", "fileContent", "file_content", "patch", "diff"]),
+  );
+}
+
+function firstStringValue(source = {}, keys = []) {
+  for (const key of keys) {
+    const value = source?.[key];
+    if (typeof value === "string") return value;
+  }
+  return undefined;
+}
+
+function normalizeToolName(value) {
+  return String(value ?? "tool").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function formatTextSize(value = "") {
+  const text = String(value ?? "");
+  const lineCount = text.length ? text.split(/\r?\n/).length : 0;
+  const byteCount = Buffer.byteLength(text, "utf8");
+  if (lineCount > 1) return `${lineCount} lines/${formatBytes(byteCount)}`;
+  return `${byteCount}b`;
+}
+
+function formatPatchSize(value = "") {
+  const lines = String(value ?? "").split(/\r?\n/);
+  const added = lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
+  const removed = lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+  if (added || removed) return `+${added}/-${removed}`;
+  return formatTextSize(value);
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return `${value}b`;
+  return `${(value / 1024).toFixed(value < 10 * 1024 ? 1 : 0)}kb`;
+}
+
+function previewText(value = "") {
+  const line = String(value ?? "").split(/\r?\n/).map((item) => item.trim()).find(Boolean);
+  return line ? truncatePlain(line, 88) : "";
 }
 
 function formatToolValue(value) {

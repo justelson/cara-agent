@@ -73,6 +73,7 @@ export function createZyraUi(options = {}) {
   const appendPanel = (component) => {
     component?.setHost?.(host);
     host.components.push(component);
+    host.markContentDirty();
     if (inputActive) {
       host.invalidate();
       return;
@@ -195,7 +196,7 @@ export function createZyraUi(options = {}) {
         // Non-interactive turns keep running tool rows out of stdout until they finish.
         return;
       }
-      host.invalidate();
+      host.invalidate({ force: event.type === "tool_execution_start" });
       return;
     }
 

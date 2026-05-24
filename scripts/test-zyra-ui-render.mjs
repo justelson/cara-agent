@@ -226,7 +226,7 @@ function runToolCallThemeStylingRegression() {
   assert.match(running, /\x1b\[38;2;35;69;103m>/, "tool marker should use theme toolCall.marker");
   assert.match(running, /\x1b\[1m\x1b\[38;2;101;67;33mbash/, "tool name should use theme toolCall.name");
   assert.match(running, /\x1b\[38;2;171;205;239mrunning/, "running state should use theme toolCall.running");
-  assert.match(running, /\x1b\[38;2;119;119;119mgit status --short/, "tool args should use theme toolCall.args");
+  assert.match(running, /\x1b\[38;2;119;119;119mcmd  git status --short/, "tool args should use theme toolCall.args");
   assert.match(running, /\x1b\[38;2;136;136;136mrunning/, "tool output should use theme toolCall.output");
   assert.equal(
     running.split("\n").every((line) => stripAnsi(line).length <= 80),
@@ -318,6 +318,48 @@ function runInteractiveToolComponentRegression() {
   assert.equal((plain.match(/bash/g) ?? []).length, 1, "tool start/update/end must keep one rendered tool row group");
   assert.match(plain, /git status --short/);
   assert.match(plain, /clean/);
+}
+
+function runRunningToolStartsImmediatelyRegression() {
+  const ui = createZyraUi();
+  ui._debugBeginInteractiveForTests();
+  ui.event({
+    type: "tool_execution_start",
+    toolName: "edit",
+    toolCallId: "edit-1",
+    args: {
+      path: "src/example.mjs",
+      oldString: "const value = 1;",
+      newString: "const value = 2;\nconst ready = true;",
+    },
+  });
+
+  const plain = ui._debugRenderLinesForTests(90).map(stripAnsi).join("\n");
+  assert.match(plain, /edit running/, "tool start should render immediately as running");
+  assert.match(plain, /path src\/example\.mjs/);
+  assert.match(plain, /edit replace/);
+  assert.match(plain, /from const value = 1;/);
+  assert.match(plain, /to   const value = 2;/);
+  assert.match(plain, /status started/);
+}
+
+function runWriteToolRicherRepresentationRegression() {
+  const plainLines = renderToolBlock({
+    state: "running",
+    toolName: "write",
+    args: {
+      path: "notes.md",
+      content: "first line\nsecond line\nthird line",
+    },
+  }, undefined, 90).map(stripAnsi);
+  const meaningful = plainLines.filter((line) => line.trim().length > 0);
+
+  assert.ok(meaningful.length > 3, "write tool should render more than title/path/status");
+  assert.equal(meaningful.some((line) => line.includes("write running")), true);
+  assert.equal(meaningful.some((line) => line.includes("path notes.md")), true);
+  assert.equal(meaningful.some((line) => line.includes("write 3 lines")), true);
+  assert.equal(meaningful.some((line) => line.includes("text first line")), true);
+  assert.equal(meaningful.some((line) => line.includes("status started")), true);
 }
 
 function runConsecutiveToolSpacingRegression() {
@@ -662,6 +704,23 @@ function runEditorSessionResetRegression() {
   assert.equal(editor.starterRecommendationDismissed, false);
 }
 
+function runEditorImmediateSlashRegression() {
+  const invalidations = [];
+  const editor = new EditorComponent({
+    suggestions: (text) => text === "/" ? [{ value: "/commands", label: "/commands", description: "show controls", kind: "command" }] : [],
+    theme: {},
+  });
+  editor.setHost({
+    invalidate: (options = {}) => invalidations.push(options),
+  });
+
+  editor.handleKeypress("/", {});
+  assert.equal(editor.buffer, "/", "single-character input should flush immediately");
+  assert.equal(invalidations.at(-1)?.fixedOnly, true, "typing should redraw fixed input lines without dirtying transcript content");
+  assert.match(editor.render(80).map(stripAnsi).join("\n"), /\/commands/, "slash suggestions should activate on the slash keypress");
+  editor.dispose();
+}
+
 function runStatusLineColorRegression() {
   const runtime = {
     profile: "elson",
@@ -772,6 +831,8 @@ runToolCallThemeStylingRegression();
 runInteractiveAssistantComponentRegression();
 runInteractiveNoTurnEndDuplicateRegression();
 runInteractiveToolComponentRegression();
+runRunningToolStartsImmediatelyRegression();
+runWriteToolRicherRepresentationRegression();
 runConsecutiveToolSpacingRegression();
 runAssistantAndToolInterleaveRegression();
 runWidthFitRegression();
@@ -786,6 +847,7 @@ runTranscriptScrollKeepsInputPinnedRegression();
 runEditorStatusGapRegression();
 runEditorBusySpacingRegression();
 runEditorSessionResetRegression();
+runEditorImmediateSlashRegression();
 runStatusLineColorRegression();
 runSystemPanelWidthRegression();
 runThemePreferencePersistenceRegression();

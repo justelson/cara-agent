@@ -31,6 +31,8 @@ export class EditorComponent {
     this.selectedIndex = 0;
     this.completedText = "";
     this.suppressSuggestionsFor = "";
+    this.cachedSuggestionText = undefined;
+    this.cachedSuggestions = [];
     this.placeholderText = pickPlaceholder();
     this.inputHistory = [];
     this.inputHistoryIndex = null;
@@ -52,12 +54,12 @@ export class EditorComponent {
 
   setTheme(theme) {
     this.theme = buildTerminalTheme(theme);
-    this.host?.invalidate();
+    this.invalidateInput();
   }
 
   setWaiting(value) {
     this.waiting = Boolean(value);
-    this.host?.invalidate();
+    this.invalidateInput();
   }
 
   resetSession() {
@@ -72,6 +74,7 @@ export class EditorComponent {
     this.selectedIndex = 0;
     this.completedText = "";
     this.suppressSuggestionsFor = "";
+    this.clearSuggestionCache();
     this.inputHistoryIndex = null;
     this.inputHistoryDraft = "";
     this.hasTranscript = false;
@@ -80,18 +83,22 @@ export class EditorComponent {
     this.starterRecommendationDismissed = false;
     this.insertedStarterPrompt = "";
     this.imagePastePromises.clear();
-    this.host?.invalidate({ force: true });
+    this.invalidateInput({ force: true });
   }
 
   tickBusy() {
     this.busyFrame += 1;
-    this.host?.invalidate();
+    this.invalidateInput();
   }
 
   suggestionsFor(text) {
     if (this.completedText && text === this.completedText) return [];
     if (this.suppressSuggestionsFor && text === this.suppressSuggestionsFor) return [];
-    return this.options.suggestions?.(text) ?? [];
+    if (text === this.cachedSuggestionText) return this.cachedSuggestions;
+    const suggestions = this.options.suggestions?.(text) ?? [];
+    this.cachedSuggestionText = text;
+    this.cachedSuggestions = suggestions;
+    return suggestions;
   }
 
   render(width) {
@@ -153,16 +160,16 @@ export class EditorComponent {
     if (key?.name === "up" && this.shouldShowStarterRecommendations()) return this.insertStarterRecommendation();
     if (key?.name === "down" && suggestions.length > 0) {
       this.selectedIndex = (this.selectedIndex + 1) % suggestions.length;
-      this.host?.invalidate();
+      this.invalidateInput();
       return;
     }
     if (key?.name === "up" && suggestions.length > 0) {
       this.selectedIndex = (this.selectedIndex - 1 + suggestions.length) % suggestions.length;
-      this.host?.invalidate();
+      this.invalidateInput();
       return;
     }
-    if (key?.name === "up" && this.recallInputHistory(-1)) return this.host?.invalidate();
-    if (key?.name === "down" && this.recallInputHistory(1)) return this.host?.invalidate();
+    if (key?.name === "up" && this.recallInputHistory(-1)) return this.invalidateInput();
+    if (key?.name === "down" && this.recallInputHistory(1)) return this.invalidateInput();
     if ((key?.name === "tab" || key?.name === "right") && suggestions.length > 0) {
       this.completeSelection();
       return;
@@ -178,7 +185,7 @@ export class EditorComponent {
       }
       const text = this.buffer.trim();
       if (!text && this.imagePastePromises.size === 0) {
-        this.host?.invalidate();
+        this.invalidateInput();
         return;
       }
       const shouldExit = await this.submit(text);
@@ -195,7 +202,8 @@ export class EditorComponent {
       this.suppressSuggestionsFor = "";
       this.selectedIndex = 0;
       this.inputHistoryIndex = null;
-      this.host?.invalidate();
+      this.clearSuggestionCache();
+      this.invalidateInput();
       return;
     }
     if (key?.name === "escape") {
@@ -207,7 +215,8 @@ export class EditorComponent {
       this.suppressSuggestionsFor = "";
       this.selectedIndex = 0;
       this.inputHistoryIndex = null;
-      this.host?.invalidate();
+      this.clearSuggestionCache();
+      this.invalidateInput();
       return;
     }
     if ((key?.meta || key?.alt) && key?.name === "v") {
@@ -236,7 +245,7 @@ export class EditorComponent {
     let submittedText = text;
     if (this.imagePastePromises.size > 0) {
       this.waiting = true;
-      this.host?.invalidate();
+      this.invalidateInput();
       await Promise.allSettled([...this.imagePastePromises]);
       submittedText = this.buffer.trim();
     }
@@ -244,7 +253,7 @@ export class EditorComponent {
     const hasImages = this.pastedImages.length > 0;
     if (!submittedText && !hasImages) {
       this.waiting = false;
-      this.host?.invalidate();
+      this.invalidateInput();
       return false;
     }
     const submission = hasImages || displayText !== submittedText
@@ -259,14 +268,15 @@ export class EditorComponent {
     this.placeholderText = pickPlaceholder(this.placeholderText);
     this.selectedIndex = 0;
     this.suppressSuggestionsFor = "";
+    this.clearSuggestionCache();
     this.inputHistoryIndex = null;
     this.waiting = hasImages || shouldShowWaitingFor(submittedText);
-    this.host?.invalidate({ force: true });
+    this.invalidateInput({ force: true });
     try {
       return await this.onSubmit(submission);
     } finally {
       this.waiting = false;
-      this.host?.invalidate();
+      this.invalidateInput();
     }
   }
 
@@ -279,9 +289,10 @@ export class EditorComponent {
     this.buffer = next;
     this.completedText = next.endsWith(" ") || (selected.kind === "file-mention" && selected.isDirectory) ? "" : next;
     this.suppressSuggestionsFor = selected.kind === "custom-model" ? next : "";
+    this.clearSuggestionCache();
     this.selectedIndex = 0;
     this.inputHistoryIndex = null;
-    this.host?.invalidate();
+    this.invalidateInput();
     if (completionOptions.submitOnEnter && selected.submitOnEnter) return next.trim();
     return false;
   }
@@ -297,9 +308,10 @@ export class EditorComponent {
     this.insertedStarterPrompt = selected.prompt;
     this.completedText = "";
     this.suppressSuggestionsFor = "";
+    this.clearSuggestionCache();
     this.selectedIndex = 0;
     this.inputHistoryIndex = null;
-    this.host?.invalidate();
+    this.invalidateInput();
     return true;
   }
 
@@ -309,12 +321,17 @@ export class EditorComponent {
     this.insertedStarterPrompt = "";
     this.completedText = "";
     this.suppressSuggestionsFor = "";
+    this.clearSuggestionCache();
     this.selectedIndex = 0;
     this.inputHistoryIndex = null;
-    this.host?.invalidate();
+    this.invalidateInput();
   }
 
   queueTextInput(str) {
+    if (!shouldDeferTextInput(str) && !this.pendingInsertedText) {
+      this.insertTextInput(str);
+      return;
+    }
     this.pendingInsertedText += str;
     if (this.pendingInsertTimer) clearTimeout(this.pendingInsertTimer);
     this.pendingInsertTimer = setTimeout(() => this.flushPendingTextInput(), 18);
@@ -328,6 +345,10 @@ export class EditorComponent {
     if (!this.pendingInsertedText) return;
     const str = this.pendingInsertedText;
     this.pendingInsertedText = "";
+    this.insertTextInput(str);
+  }
+
+  insertTextInput(str) {
     const start = this.buffer.length;
     this.buffer += str;
     this.insertedStarterPrompt = "";
@@ -342,9 +363,10 @@ export class EditorComponent {
     }
     this.completedText = "";
     this.suppressSuggestionsFor = "";
+    this.clearSuggestionCache();
     this.selectedIndex = 0;
     this.inputHistoryIndex = null;
-    this.host?.invalidate();
+    this.invalidateInput();
   }
 
   queueImagePaste() {
@@ -362,9 +384,10 @@ export class EditorComponent {
       blockIdInserted = true;
       this.completedText = "";
       this.suppressSuggestionsFor = "";
+      this.clearSuggestionCache();
       this.selectedIndex = 0;
       this.inputHistoryIndex = null;
-      this.host?.invalidate();
+      this.invalidateInput();
     };
     const pastePromise = readClipboardImage().then(insertPastedImageBlock);
     this.imagePastePromises.add(pastePromise);
@@ -399,8 +422,18 @@ export class EditorComponent {
     this.insertedStarterPrompt = "";
     this.completedText = "";
     this.suppressSuggestionsFor = "";
+    this.clearSuggestionCache();
     this.selectedIndex = 0;
     return true;
+  }
+
+  invalidateInput(options = {}) {
+    this.host?.invalidate({ fixedOnly: true, ...options });
+  }
+
+  clearSuggestionCache() {
+    this.cachedSuggestionText = undefined;
+    this.cachedSuggestions = [];
   }
 
   notifySelectedSuggestion(item) {
@@ -422,6 +455,10 @@ function shouldShowWaitingFor(text) {
 
 function isLikelyPaste(value) {
   return value.length >= pastedTextThreshold || /\r|\n/.test(value);
+}
+
+function shouldDeferTextInput(value) {
+  return String(value ?? "").length > 1 || isLikelyPaste(String(value ?? ""));
 }
 
 function displayTextFor(text, blocks = []) {

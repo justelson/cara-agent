@@ -283,6 +283,7 @@ async function main() {
   let pendingMidRunInputs = [];
   let abortRequested = false;
   let suppressNextAbortError = false;
+  let previewingThemeSuggestion = false;
 
   const startFreshChat = async () => {
     ui.info("Starting a fresh Zyra chat...");
@@ -367,8 +368,10 @@ async function main() {
     applySuggestion: applySlashSuggestion,
     onSuggestionSelect: (item) => {
       if (item?.kind === "theme" && item.previewTheme) {
+        previewingThemeSuggestion = true;
         ui.setTheme(item.previewTheme);
-      } else {
+      } else if (previewingThemeSuggestion) {
+        previewingThemeSuggestion = false;
         ui.setTheme(runtime.terminalTheme);
       }
     },
