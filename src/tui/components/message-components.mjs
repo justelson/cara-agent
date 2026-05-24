@@ -65,6 +65,7 @@ export class ToolMessageComponent {
     this.key = key;
     this.toolState = toolState;
     this.theme = theme;
+    this.spacingKind = "tool";
   }
 
   setHost(host) {

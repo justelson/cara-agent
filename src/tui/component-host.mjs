@@ -177,9 +177,15 @@ export class ZyraComponentHost {
 
   renderContentLines(width = this.width()) {
     const lines = [];
+    let previousSpacingKind = "";
     for (const component of this.components) {
       if (component.hidden) continue;
-      lines.push(...safeRender(component, width));
+      const rendered = safeRender(component, width);
+      if (previousSpacingKind === "tool" && component.spacingKind === "tool" && lines.at(-1) === "" && rendered[0] === "") {
+        rendered.shift();
+      }
+      lines.push(...rendered);
+      if (rendered.length > 0) previousSpacingKind = component.spacingKind ?? "";
     }
     return renderLinesWithinWidth(lines, width);
   }

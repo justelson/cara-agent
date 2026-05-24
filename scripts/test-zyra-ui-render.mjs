@@ -320,6 +320,32 @@ function runInteractiveToolComponentRegression() {
   assert.match(plain, /clean/);
 }
 
+function runConsecutiveToolSpacingRegression() {
+  const ui = createZyraUi();
+  ui._debugBeginInteractiveForTests();
+  ui.event({
+    type: "tool_execution_end",
+    toolName: "read",
+    toolCallId: "tool-a",
+    args: { path: "a.txt" },
+    result: { content: [{ type: "text", text: "a-output" }] },
+  });
+  ui.event({
+    type: "tool_execution_end",
+    toolName: "write",
+    toolCallId: "tool-b",
+    args: { path: "b.txt" },
+    result: { content: [{ type: "text", text: "b-output" }] },
+  });
+
+  const lines = ui._debugRenderLinesForTests(80).map(stripAnsi);
+  const firstEnd = lines.findIndex((line) => line.includes("a-output"));
+  const secondStart = lines.findIndex((line) => line.includes("write succeeded"));
+  assert.ok(firstEnd >= 0, "first tool output should render");
+  assert.ok(secondStart > firstEnd, "second tool should render after first tool");
+  assert.deepEqual(lines.slice(firstEnd + 1, secondStart), [""], "consecutive tool calls should have exactly one blank line between them");
+}
+
 function runAssistantAndToolInterleaveRegression() {
   const ui = createZyraUi();
   ui._debugBeginInteractiveForTests();
@@ -746,6 +772,7 @@ runToolCallThemeStylingRegression();
 runInteractiveAssistantComponentRegression();
 runInteractiveNoTurnEndDuplicateRegression();
 runInteractiveToolComponentRegression();
+runConsecutiveToolSpacingRegression();
 runAssistantAndToolInterleaveRegression();
 runWidthFitRegression();
 runStaticPanelsThroughHostRegression();
