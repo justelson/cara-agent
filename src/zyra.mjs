@@ -44,11 +44,12 @@ function parse(argv) {
   let pickSession = false;
   let printMode = false;
   let model = "";
+  let thinking = "";
   let profile = "";
   let terminalTheme = "";
 
   if (args[0] === "--help" || args[0] === "-h") {
-    return { command: args[0], project, prompt, sessionMode, session, noSession, pickSession, printMode, model, profile, terminalTheme };
+    return { command: args[0], project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, profile, terminalTheme };
   }
 
   if (args[0] && !args[0].startsWith("-")) {
@@ -61,7 +62,7 @@ function parse(argv) {
       project = path.resolve(args[i + 1]);
       i += 1;
     } else if (arg === "--thinking" && args[i + 1]) {
-      defaults.thinking = args[i + 1];
+      thinking = args[i + 1];
       i += 1;
     } else if (arg === "--model" && args[i + 1]) {
       model = args[i + 1];
@@ -129,7 +130,7 @@ function parse(argv) {
     throw new Error('Usage: zyra -p "your question"');
   }
 
-  return { command, project, prompt, sessionMode, session, noSession, pickSession, printMode, model, profile, terminalTheme };
+  return { command, project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, profile, terminalTheme };
 }
 
 function runUpdate() {
@@ -234,6 +235,7 @@ async function main() {
     session: parsed.session,
     noSession: parsed.noSession || (parsed.printMode && parsed.sessionMode === "new" && !parsed.session),
     model: parsed.model || undefined,
+    thinking: parsed.thinking || undefined,
     profile: parsed.profile || undefined,
     terminalTheme: parsed.terminalTheme || undefined,
   };
@@ -591,6 +593,7 @@ function restartZyraProcess(runtime, options = {}) {
   }
   args.push("--project", runtime.project);
   if (runtime.profile) args.push("--profile", runtime.profile);
+  if (runtime.session.thinkingLevel) args.push("--thinking", runtime.session.thinkingLevel);
   if (runtime.terminalTheme?.name) args.push("--theme", runtime.terminalTheme.name);
   if (runtime.session.model) args.push("--model", `${runtime.session.model.provider}/${runtime.session.model.id}`);
 

@@ -56,6 +56,8 @@ export const defaults = {
   model: "openai-codex/gpt-5.5",
 };
 
+const KNOWN_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
+
 export function getProjectSessionsDir(project = defaults.project) {
   const root = resolveProjectDataDir(project);
   return path.join(root, "sessions");
@@ -67,6 +69,21 @@ export function getProjectDataDir(project = defaults.project) {
 
 export function getLegacyProjectDataDir(project = defaults.project) {
   return path.join(path.resolve(project), LEGACY_PROJECT_DATA_DIR);
+}
+
+export function resolveZyraStartupPreferences(project = defaults.project, options = {}, preferences = readProjectPreferences(project)) {
+  return {
+    terminalTheme: String(options.terminalTheme ?? process.env.ZYRA_TERMINAL_THEME ?? process.env.CARA_TERMINAL_THEME ?? "").trim()
+      || readProjectTerminalThemePreference(project, preferences)
+      || undefined,
+    profile: normalizeProfile(options.profile) ?? readProjectProfilePreference(project, preferences),
+    thinking: normalizeThinkingPreference(options.thinking)
+      ?? readProjectThinkingPreference(project, preferences)
+      ?? defaults.thinking,
+    model: normalizeModelSelector(options.model)
+      ?? readProjectModelPreference(project, preferences)
+      ?? defaults.model,
+  };
 }
 
 function resolveProjectDataDir(project) {
@@ -203,7 +220,9 @@ export async function createZyraSession(options = {}) {
   const project = path.resolve(options.project ?? defaults.project);
   migrateLegacyProjectData(project);
   const sessions = path.resolve(options.sessions ?? getProjectSessionsDir(project));
-  const thinking = options.thinking ?? defaults.thinking;
+  const preferences = readProjectPreferences(project);
+  const startupPreferences = resolveZyraStartupPreferences(project, options, preferences);
+  const thinking = startupPreferences.thinking;
 
   if (!existsSync(project)) {
     throw new Error(`Project path does not exist: ${project}`);
@@ -229,10 +248,11 @@ export async function createZyraSession(options = {}) {
   const theme = ensureSessionTheme(sessionManager, { persist: !options.noSession });
   const terminalTheme = ensureSessionTerminalTheme(sessionManager, {
     project,
+    preferences,
     persist: !options.noSession,
     requested: options.terminalTheme ?? process.env.ZYRA_TERMINAL_THEME ?? process.env.CARA_TERMINAL_THEME,
   });
-  const profile = ensureSessionProfile(sessionManager, { persist: !options.noSession, requested: options.profile });
+  const profile = ensureSessionProfile(sessionManager, { project, preferences, persist: !options.noSession, requested: options.profile });
   const startupResources = await createZyraResourceLoader(project, {
     enablePiExtensions: options.enablePiExtensions || process.env.ZYRA_ENABLE_PI_EXTENSIONS === "1" || process.env.CARA_ENABLE_PI_EXTENSIONS === "1",
   });
@@ -265,7 +285,11 @@ export async function createZyraSession(options = {}) {
   }
   const projectMemory = options.skipProjectMemory ? [] : injectProjectMemory(result.session, project);
 
-  await preferDefaultModel(result.session, options.model ?? defaults.model);
+  let selectedModel = await preferDefaultModel(result.session, startupPreferences.model);
+  if (!selectedModel && startupPreferences.model !== defaults.model) {
+    selectedModel = await preferDefaultModel(result.session, defaults.model);
+  }
+  persistExplicitStartupPreferences(project, options, { thinking, terminalTheme, profile, model: selectedModel });
 
   return {
     session: result.session,
@@ -787,12 +811,12 @@ function readSessionTheme(sessionManager) {
 function ensureSessionTerminalTheme(sessionManager, options = {}) {
   const requested = String(options.requested ?? "").trim();
   const stored = readSessionTerminalTheme(sessionManager);
-  const projectPreference = readProjectTerminalThemePreference(options.project);
-  const theme = resolveTerminalTheme(requested || stored || projectPreference || DEFAULT_TERMINAL_THEME, { root: ROOT, project: options.project });
+  const projectPreference = readProjectTerminalThemePreference(options.project, options.preferences);
+  const theme = resolveTerminalTheme(requested || projectPreference || stored || DEFAULT_TERMINAL_THEME, { root: ROOT, project: options.project });
   if (options.persist && typeof sessionManager.appendCustomEntry === "function" && theme.name !== stored) {
     sessionManager.appendCustomEntry(ZYRA_TERMINAL_THEME_CUSTOM_TYPE, {
       name: theme.name,
-      source: requested ? "manual" : stored ? "session" : projectPreference ? "project" : "default",
+      source: requested ? "manual" : projectPreference ? "project" : stored ? "session" : "default",
       savedAt: new Date().toISOString(),
     });
   }
@@ -812,12 +836,14 @@ function readSessionTerminalTheme(sessionManager) {
 
 function ensureSessionProfile(sessionManager, options = {}) {
   const requested = normalizeProfile(options.requested);
+  const projectPreference = readProjectProfilePreference(options.project, options.preferences);
   const stored = readSessionProfile(sessionManager);
-  const profile = requested && requested !== "auto" ? requested : stored ?? detectDefaultProfile();
-  if (options.persist && typeof sessionManager.appendCustomEntry === "function" && !stored) {
+  const selected = requested ?? projectPreference ?? stored;
+  const profile = selected === "auto" ? detectDefaultProfile() : selected ?? detectDefaultProfile();
+  if (options.persist && typeof sessionManager.appendCustomEntry === "function" && profile !== stored) {
     sessionManager.appendCustomEntry(ZYRA_PROFILE_CUSTOM_TYPE, {
       profile,
-      source: requested && requested !== "auto" ? "manual" : "auto",
+      source: requested ? "manual" : projectPreference ? "project" : stored ? "session" : "auto",
       savedAt: new Date().toISOString(),
     });
   }
@@ -849,15 +875,26 @@ function normalizeProfile(value) {
   return ["elson", "cara", "auto"].includes(profile) ? profile : undefined;
 }
 
+function normalizeThinkingPreference(value) {
+  const level = String(value ?? "").trim().toLowerCase();
+  if (!level) return undefined;
+  return KNOWN_THINKING_LEVELS.has(level) ? level : undefined;
+}
+
+function normalizeModelSelector(value) {
+  return String(value ?? "").trim() || undefined;
+}
+
 async function preferDefaultModel(session, selector) {
   const [provider, ...modelParts] = String(selector ?? "").split("/");
   const modelId = modelParts.join("/");
-  if (!provider || !modelId) return;
-  if (session.model?.provider === provider && session.model?.id === modelId) return;
+  if (!provider || !modelId) return undefined;
+  if (session.model?.provider === provider && session.model?.id === modelId) return session.model;
 
   const model = session.modelRegistry.find(provider, modelId);
-  if (!model || !session.modelRegistry.hasConfiguredAuth(model)) return;
+  if (!model || !session.modelRegistry.hasConfiguredAuth(model)) return undefined;
   await session.setModel(model);
+  return model;
 }
 
 async function createZyraMemoryWorkerSession({ model } = {}) {
@@ -1051,6 +1088,7 @@ export function setProfile(runtime, profile) {
   }
   const resolved = next === "auto" ? detectDefaultProfile() : next;
   runtime.profile = resolved;
+  writeProjectProfilePreference(runtime.project, next, resolved);
   injectActiveProfile(runtime.session, resolved);
   const sessionManager = runtime.session.sessionManager;
   if (typeof sessionManager.appendCustomEntry === "function" && sessionManager.getSessionFile?.()) {
@@ -1082,8 +1120,8 @@ export function setZyraTheme(runtime, selector) {
   return theme;
 }
 
-function readProjectTerminalThemePreference(project) {
-  const preferences = readProjectPreferences(project);
+function readProjectTerminalThemePreference(project, preferences = readProjectPreferences(project)) {
+  void project;
   return String(preferences.terminalTheme ?? "").trim() || undefined;
 }
 
@@ -1095,6 +1133,75 @@ function writeProjectTerminalThemePreference(project, themeName) {
     terminalTheme: themeName,
     terminalThemeUpdatedAt: new Date().toISOString(),
   });
+}
+
+function readProjectProfilePreference(project, preferences = readProjectPreferences(project)) {
+  return normalizeProfile(preferences.profile);
+}
+
+function writeProjectProfilePreference(project, profile, resolvedProfile = profile) {
+  const next = normalizeProfile(profile);
+  if (!project || !next) return;
+  const preferences = readProjectPreferences(project);
+  writeProjectPreferences(project, {
+    ...preferences,
+    profile: next,
+    profileResolved: resolvedProfile,
+    profileUpdatedAt: new Date().toISOString(),
+  });
+}
+
+function readProjectThinkingPreference(project, preferences = readProjectPreferences(project)) {
+  void project;
+  return normalizeThinkingPreference(preferences.thinking);
+}
+
+function writeProjectThinkingPreference(project, thinking) {
+  const next = normalizeThinkingPreference(thinking);
+  if (!project || !next) return;
+  const preferences = readProjectPreferences(project);
+  writeProjectPreferences(project, {
+    ...preferences,
+    thinking: next,
+    thinkingUpdatedAt: new Date().toISOString(),
+  });
+}
+
+function readProjectModelPreference(project, preferences = readProjectPreferences(project)) {
+  void project;
+  return normalizeModelSelector(preferences.model);
+}
+
+function writeProjectModelPreference(project, model) {
+  const selector = typeof model === "string" ? normalizeModelSelector(model) : modelSelector(model);
+  if (!project || !selector) return;
+  const preferences = readProjectPreferences(project);
+  writeProjectPreferences(project, {
+    ...preferences,
+    model: selector,
+    modelUpdatedAt: new Date().toISOString(),
+  });
+}
+
+function modelSelector(model) {
+  if (!model?.provider || !model?.id) return undefined;
+  return `${model.provider}/${model.id}`;
+}
+
+function persistExplicitStartupPreferences(project, options = {}, resolved = {}) {
+  if (options.noSession) return;
+  if (options.terminalTheme && resolved.terminalTheme?.name) {
+    writeProjectTerminalThemePreference(project, resolved.terminalTheme.name);
+  }
+  if (options.profile) {
+    writeProjectProfilePreference(project, normalizeProfile(options.profile), resolved.profile);
+  }
+  if (options.thinking) {
+    writeProjectThinkingPreference(project, resolved.thinking);
+  }
+  if (options.model && resolved.model) {
+    writeProjectModelPreference(project, resolved.model);
+  }
 }
 
 function readProjectPreferences(project) {
@@ -1307,7 +1414,9 @@ function extractReasoningTokens(usage) {
 export function setThinking(runtime, level) {
   const requested = String(level ?? "").trim().toLowerCase();
   if (!requested || requested === "next") {
-    return runtime.session.cycleThinkingLevel() ?? runtime.session.thinkingLevel;
+    const cycled = runtime.session.cycleThinkingLevel() ?? runtime.session.thinkingLevel;
+    writeProjectThinkingPreference(runtime.project, cycled);
+    return cycled;
   }
 
   const levels = runtime.session.getAvailableThinkingLevels();
@@ -1315,6 +1424,7 @@ export function setThinking(runtime, level) {
     throw new Error(`Thinking must be one of: ${levels.join(", ")}`);
   }
   runtime.session.setThinkingLevel(requested);
+  writeProjectThinkingPreference(runtime.project, runtime.session.thinkingLevel);
   return runtime.session.thinkingLevel;
 }
 
@@ -1340,6 +1450,7 @@ export async function setModel(runtime, selector) {
   }
 
   await runtime.session.setModel(fuzzy);
+  writeProjectModelPreference(runtime.project, fuzzy);
   return fuzzy;
 }
 

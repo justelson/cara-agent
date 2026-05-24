@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { getSlashSuggestions } from "../src/slash-suggestions.mjs";
 import { AssistantMessageLifecycle, createZyraUi, mergeAssistantTextDelta } from "../src/zyra-ui.mjs";
-import { setZyraTheme } from "../src/zyra-sdk.mjs";
+import { resolveZyraStartupPreferences, setModel, setProfile, setThinking, setZyraTheme } from "../src/zyra-sdk.mjs";
 import { renderStatusLine } from "../src/status-line.mjs";
 import { buildTerminalTheme } from "../src/terminal-theme.mjs";
 import { renderAccountStatusBox, renderCodexUsageBox, renderStatusBox } from "../src/terminal-blocks.mjs";
@@ -189,6 +189,22 @@ function runToolOutputStyleRegression() {
   assert.match(stripAnsi(captured), /git remote -v/);
 }
 
+function runPiLikeToolPresentationRegression() {
+  const lines = renderToolBlock({
+    state: "done",
+    toolName: "bash",
+    args: { command: "printf 'Known skill dirs named like design notes...\\n'" },
+    result: { content: [{ type: "text", text: "Known skill dirs named like design notes...\nC:\\Users\\elson\\.agents\\skills\\perfect-design\\SKILL.md" }] },
+    durationMs: 19600,
+  }, undefined, 110).map(stripAnsi);
+  const meaningful = lines.filter((line) => line.trim().length > 0);
+
+  assert.match(meaningful[0], /^\s*\$ printf/);
+  assert.equal(meaningful.some((line) => line.includes("Known skill dirs named like design notes")), true);
+  assert.equal(meaningful.some((line) => line.includes("Took 19.6s")), true);
+  assert.equal(meaningful.every((line) => line.length <= 110), true);
+}
+
 function runToolCallThemeStylingRegression() {
   const theme = buildTerminalTheme({
     name: "tool-style-test",
@@ -205,6 +221,7 @@ function runToolCallThemeStylingRegression() {
         errorBackground: "#030405",
         rail: "#123456",
         marker: "#234567",
+        title: "#ffffff",
         name: "#654321",
         running: "#abcdef",
         success: "#00ff00",
@@ -223,10 +240,9 @@ function runToolCallThemeStylingRegression() {
   }, theme, 80).join("\n");
 
   assert.match(running, /\x1b\[48;2;1;2;3m/, "running tool rows should use theme toolCall.background");
-  assert.match(running, /\x1b\[38;2;35;69;103m>/, "tool marker should use theme toolCall.marker");
-  assert.match(running, /\x1b\[1m\x1b\[38;2;101;67;33mbash/, "tool name should use theme toolCall.name");
-  assert.match(running, /\x1b\[38;2;171;205;239mrunning/, "running state should use theme toolCall.running");
-  assert.match(running, /\x1b\[38;2;119;119;119mcmd  git status --short/, "tool args should use theme toolCall.args");
+  assert.match(running, /\x1b\[38;2;35;69;103m\$/, "tool command marker should use theme toolCall.marker");
+  assert.match(running, /\x1b\[1m\x1b\[38;2;255;255;255mgit status --short/, "command row should use theme toolCall.title");
+  assert.equal(stripAnsi(running).includes("command: git status --short"), false, "command row should not repeat command as an arg");
   assert.match(running, /\x1b\[38;2;136;136;136mrunning/, "tool output should use theme toolCall.output");
   assert.equal(
     running.split("\n").every((line) => stripAnsi(line).length <= 80),
@@ -900,6 +916,68 @@ function runThemePreferencePersistenceRegression() {
   }
 }
 
+async function runRuntimePreferencePersistenceRegression() {
+  const project = mkdtempSync(path.join(os.tmpdir(), "zyra-runtime-prefs-"));
+  try {
+    const model = { provider: "openai-codex", id: "gpt-test", name: "GPT Test" };
+    const runtime = {
+      project,
+      profile: "elson",
+      session: {
+        agent: { state: { systemPrompt: "" } },
+        thinkingLevel: "medium",
+        getAvailableThinkingLevels: () => ["low", "medium", "high"],
+        setThinkingLevel(level) {
+          this.thinkingLevel = level;
+        },
+        cycleThinkingLevel() {
+          this.thinkingLevel = "low";
+          return this.thinkingLevel;
+        },
+        model: null,
+        async setModel(nextModel) {
+          this.model = nextModel;
+        },
+        modelRegistry: {
+          getAvailable: () => [model],
+          find: (provider, id) => provider === model.provider && id === model.id ? model : undefined,
+          hasConfiguredAuth: () => true,
+        },
+        sessionManager: {
+          getSessionFile: () => path.join(project, "session.jsonl"),
+          appendCustomEntry() {},
+        },
+      },
+    };
+
+    setProfile(runtime, "cara");
+    setThinking(runtime, "high");
+    await setModel(runtime, "gpt-test");
+
+    const preferences = JSON.parse(readFileSync(path.join(project, ".zyra", "preferences.json"), "utf8"));
+    assert.equal(preferences.profile, "cara");
+    assert.equal(preferences.profileResolved, "cara");
+    assert.equal(preferences.thinking, "high");
+    assert.equal(preferences.model, "openai-codex/gpt-test");
+
+    const startup = resolveZyraStartupPreferences(project);
+    assert.equal(startup.profile, "cara");
+    assert.equal(startup.thinking, "high");
+    assert.equal(startup.model, "openai-codex/gpt-test");
+
+    const overridden = resolveZyraStartupPreferences(project, {
+      profile: "elson",
+      thinking: "low",
+      model: "openai-codex/gpt-other",
+    });
+    assert.equal(overridden.profile, "elson");
+    assert.equal(overridden.thinking, "low");
+    assert.equal(overridden.model, "openai-codex/gpt-other");
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+}
+
 function runSessionCommandRenameRegression() {
   const values = getSlashSuggestions({ project: process.cwd(), session: {} }, "/").map((item) => item.value);
   assert.equal(values.includes("/session"), true);
@@ -915,6 +993,7 @@ runMergeHelperRegression();
 runSnapshotDeltaPollutionRegression();
 runUiEventCaptureRegression();
 runToolOutputStyleRegression();
+runPiLikeToolPresentationRegression();
 runToolCallThemeStylingRegression();
 runInteractiveAssistantComponentRegression();
 runInteractiveNoTurnEndDuplicateRegression();
@@ -942,5 +1021,6 @@ runStatusLineColorRegression();
 runStatusLineCostCacheRegression();
 runSystemPanelWidthRegression();
 runThemePreferencePersistenceRegression();
+await runRuntimePreferencePersistenceRegression();
 runSessionCommandRenameRegression();
 console.log("zyra-ui render regression: ok");

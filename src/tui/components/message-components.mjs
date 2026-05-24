@@ -8,6 +8,7 @@ import {
   splitDisplayLines,
   trimOuterBlankLines,
   truncatePlain,
+  visibleWidth,
   wrapPlain,
 } from "../render-utils.mjs";
 
@@ -110,12 +111,22 @@ export function renderToolBlock(toolState, theme = fallbackTheme, width = 100) {
   const stateLabel = isError ? "failed" : isDone ? "succeeded" : "running";
   const state = isError ? "error" : isDone ? "done" : "running";
   const title = toolState.toolName ?? "tool";
-  const rows = [{ kind: "title", title, state, stateLabel }];
-  const args = summarizeToolArgs(toolState.args ?? toolState.arguments, { toolName: title, state });
+  const rawArgs = toolState.args ?? toolState.arguments;
+  const command = rawArgs && typeof rawArgs === "object" ? firstStringValue(rawArgs, ["command", "cmd"]) : undefined;
+  const rows = command
+    ? [{ kind: "command", title, state, stateLabel, text: command }]
+    : [{ kind: "title", title, state, stateLabel }];
+  const args = summarizeToolArgs(rawArgs, { toolName: title, state, commandAsTitle: Boolean(command) });
   if (args) rows.push(...normalizeToolSummaryRows(args, "args"));
   const outputText = summarizeToolResult(toolState.result ?? toolState.partialResult);
   if (outputText.length > 0) {
+    rows.push({ kind: "spacer" });
     rows.push(...outputText.flatMap((line) => splitDisplayLines(line)).map((line) => ({ kind: "output", text: line })));
+  }
+  const footer = toolFooterText(toolState, { title, state, stateLabel, hasOutput: outputText.length > 0, hasCommand: Boolean(command) });
+  if (footer) {
+    rows.push({ kind: "spacer" });
+    rows.push({ kind: state === "error" ? "footerError" : "hint", text: footer });
   } else if (state === "running") {
     rows.push({ kind: "hint", text: "status started" });
   }
@@ -132,10 +143,13 @@ export function summarizeToolArgs(args, context = {}) {
   const command = firstStringValue(args, ["command", "cmd"]);
   const isMutation = isFileMutationTool(toolName, args);
   if (targetPath) rows.push(`path ${truncatePlain(targetPath, 116)}`);
-  if (command) rows.push(`${toolName.includes("bash") ? "cmd " : "run "} ${truncatePlain(command, 116)}`);
+  if (command && !context.commandAsTitle) rows.push(`${toolName.includes("bash") ? "cmd " : "run "} ${truncatePlain(command, 116)}`);
   if (isMutation) rows.push(...summarizeMutationArgs(toolName, args));
   if (rows.length > 0) return rows.slice(0, isMutation ? 14 : 7);
-  const values = Object.entries(args).filter(([, value]) => value !== undefined && value !== null && value !== "");
+  const values = Object.entries(args).filter(([key, value]) => {
+    if (context.commandAsTitle && ["command", "cmd"].includes(key)) return false;
+    return value !== undefined && value !== null && value !== "";
+  });
   const entries = values.slice(0, 4).map(([key, value]) => `${key}: ${formatToolValue(value)}`);
   if (values.length > entries.length) {
     entries.push(`... ${values.length - entries.length} more arg${values.length - entries.length === 1 ? "" : "s"}`);
@@ -303,7 +317,57 @@ function formatToolValue(value) {
   }
 }
 
+function toolFooterText(toolState = {}, context = {}) {
+  const timing = formatToolTiming(toolState);
+  if (timing) return timing;
+  if (context.hasCommand) return `${String(context.title ?? "tool").replace(/\s+/g, " ").trim() || "tool"} ${context.stateLabel ?? context.state ?? ""}`.trim();
+  if (context.state === "running" && !context.hasOutput) return "status started";
+  return "";
+}
+
+function formatToolTiming(toolState = {}) {
+  const durationMs = numericMilliseconds(toolState.durationMs)
+    ?? numericMilliseconds(toolState.elapsedMs)
+    ?? numericMilliseconds(toolState.executionTimeMs)
+    ?? numericMilliseconds(toolState.result?.durationMs)
+    ?? numericMilliseconds(toolState.result?.elapsedMs)
+    ?? numericSeconds(toolState.durationSeconds)
+    ?? numericSeconds(toolState.elapsedSeconds)
+    ?? durationBetween(toolState.startedAt, toolState.endedAt ?? toolState.completedAt);
+  if (durationMs === undefined) return "";
+  return `Took ${formatDuration(durationMs)}`;
+}
+
+function numericMilliseconds(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return undefined;
+  return number;
+}
+
+function numericSeconds(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return undefined;
+  return number * 1000;
+}
+
+function durationBetween(start, end) {
+  const started = Date.parse(start);
+  const ended = Date.parse(end);
+  if (!Number.isFinite(started) || !Number.isFinite(ended) || ended < started) return undefined;
+  return ended - started;
+}
+
+function formatDuration(ms) {
+  const seconds = ms / 1000;
+  if (seconds < 10) return `${seconds.toFixed(1)}s`;
+  if (seconds < 60) return `${Number.isInteger(seconds) ? seconds.toFixed(0) : seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.round(seconds % 60);
+  return `${minutes}m ${remainder}s`;
+}
+
 function toolRowColor(kind, theme = fallbackTheme) {
+  if (kind === "command") return theme.toolTitleFg ?? theme.toolFg ?? `${bold}\x1b[97m`;
   if (kind === "title") return theme.toolTitleFg ?? theme.toolFg ?? `${bold}\x1b[97m`;
   if (kind === "args") return theme.toolArgsFg ?? theme.toolDetailFg ?? theme.toolFg ?? "\x1b[97m";
   if (kind === "output") return theme.toolOutputFg ?? theme.toolDetailFg ?? theme.toolFg ?? "\x1b[97m";
@@ -311,15 +375,17 @@ function toolRowColor(kind, theme = fallbackTheme) {
   if (kind === "diffRemove") return theme.toolDiffRemoveFg ?? theme.error ?? theme.toolFg ?? "\x1b[91m";
   if (kind === "diffMeta") return theme.toolDiffMetaFg ?? theme.toolDimFg ?? theme.toolHintFg ?? "\x1b[38;5;245m";
   if (kind === "diffContext") return theme.toolDiffContextFg ?? theme.toolDetailFg ?? theme.toolFg ?? "\x1b[97m";
+  if (kind === "footerError") return theme.toolStateErrorFg ?? theme.error ?? theme.toolHintFg ?? "\x1b[38;5;245m";
   if (kind === "hint") return theme.toolHintFg ?? theme.toolFg ?? "\x1b[38;5;245m";
   return theme.toolDetailFg ?? theme.toolFg ?? "\x1b[97m";
 }
 
 function renderToolRow(row, theme = fallbackTheme, width = 100, surface = theme.toolBg) {
+  if (row.kind === "spacer") return `${surface}${" ".repeat(width)}${reset}`;
   const marker = toolRowMarker(row);
   const markerColor = toolMarkerColor(row, theme);
-  const prefix = `  ${markerColor}${marker} `;
-  const contentWidth = Math.max(1, width - 4);
+  const prefix = toolRowPrefix(row, marker, markerColor);
+  const contentWidth = Math.max(1, width - visibleWidth(prefix));
   const rowContent = row.kind === "title"
     ? `${prefix}${renderToolTitle(row, theme, contentWidth)}`
     : `${prefix}${toolRowColor(row.kind, theme)}${truncatePlain(row.text ?? "", contentWidth)}`;
@@ -329,17 +395,24 @@ function renderToolRow(row, theme = fallbackTheme, width = 100, surface = theme.
 function toolRowMarker(row) {
   if (row.kind === "title" && row.state === "error") return "!";
   if (row.kind === "title") return ">";
+  if (row.kind === "command") return "$";
   if (row.kind === "diffAdd") return "+";
   if (row.kind === "diffRemove") return "-";
   if (row.kind === "diffContext") return " ";
-  return "|";
+  if (row.kind === "diffMeta" || row.kind === "args") return "|";
+  return "";
 }
 
 function toolMarkerColor(row, theme = fallbackTheme) {
   if (row.kind === "diffAdd") return theme.toolDiffAddFg ?? theme.success ?? theme.toolRailFg;
   if (row.kind === "diffRemove") return theme.toolDiffRemoveFg ?? theme.error ?? theme.toolRailFg;
-  if (row.kind === "title") return theme.toolMarkerFg;
+  if (row.kind === "title" || row.kind === "command") return theme.toolMarkerFg;
   return theme.toolRailFg;
+}
+
+function toolRowPrefix(row, marker, markerColor) {
+  if (!marker) return "  ";
+  return `  ${markerColor}${marker} `;
 }
 
 function toolSurfaceForState(state, theme = fallbackTheme) {
