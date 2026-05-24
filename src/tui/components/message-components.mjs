@@ -482,7 +482,9 @@ function renderToolRow(row, theme = fallbackTheme, width = 100, surface = theme.
   }
 
   const color = toolRowColor(row.kind, theme);
-  const wrapped = wrapCodeRow(row.text ?? "", contentWidth);
+  const wrapped = shouldWordWrapToolRow(row.kind)
+    ? wrapPlain(row.text ?? "", contentWidth)
+    : wrapCodeRow(row.text ?? "", contentWidth);
   const lines = [];
   for (const [index, line] of wrapped.entries()) {
     const linePrefix = index === 0 ? prefix : "  ";
@@ -506,6 +508,10 @@ function wrapCodeRow(text, width = 80) {
     }
   }
   return rows.length ? rows : [""];
+}
+
+function shouldWordWrapToolRow(kind) {
+  return ["args", "diffMeta", "footerError", "hint", "output"].includes(kind);
 }
 
 function toolRowMarker(row) {

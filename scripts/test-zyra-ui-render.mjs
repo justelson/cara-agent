@@ -261,6 +261,22 @@ function runToolOutputUsesFullBlockWidthRegression() {
   assert.equal(lines.every((line) => line.length <= 80), true);
 }
 
+function runToolOutputWordWrapRegression() {
+  const output = "alpha beta gamma delta epsilon zeta eta theta iota kappa";
+  const lines = renderToolBlock({
+    state: "done",
+    toolName: "read",
+    result: { content: [{ type: "text", text: output }] },
+    durationMs: 100,
+  }, undefined, 34).map(stripAnsi);
+  const body = lines.map((line) => line.trim()).filter(Boolean);
+
+  assert.equal(body.some((line) => line === "alpha beta gamma delta epsilon"), true, "tool prose output should wrap at word boundaries");
+  assert.equal(body.some((line) => line === "zeta eta theta iota kappa"), true, "tool prose output should continue with whole words");
+  assert.equal(body.every((line) => !/\b[a-z]{1,2}$/.test(line) || ["read succeeded", "0.1s succeeded"].includes(line)), true, "tool prose output should not leave chopped word fragments");
+  assert.equal(lines.every((line) => line.length <= 34), true);
+}
+
 function runEditToolPiLikeRegression() {
   const lines = renderToolBlock({
     state: "done",
@@ -796,6 +812,19 @@ function runEditorBusySpacingRegression() {
   assert.equal(lines[activityIndex + 1], "", "busy activity line should have breathing room below");
 }
 
+function runEditorWordWrapRegression() {
+  const editor = new EditorComponent({
+    suggestions: () => [],
+    theme: {},
+  });
+  editor.buffer = "alpha beta gamma delta epsilon zeta";
+
+  const lines = editor.render(22).map(stripAnsi);
+  assert.equal(lines[1], "> alpha beta gamma");
+  assert.equal(lines[2].trim(), "delta epsilon zeta");
+  assert.equal(lines.every((line) => line.length <= 22), true);
+}
+
 function runEditorSessionResetRegression() {
   const editor = new EditorComponent({
     suggestions: () => [],
@@ -1088,6 +1117,7 @@ runPiLikeToolPresentationRegression();
 runToolCommandInlineRunningTimeRegression();
 runToolCommandMultilineRegression();
 runToolOutputUsesFullBlockWidthRegression();
+runToolOutputWordWrapRegression();
 runEditToolPiLikeRegression();
 runToolCallThemeStylingRegression();
 runInteractiveAssistantComponentRegression();
@@ -1108,6 +1138,7 @@ runInteractiveSessionResetRedrawRegression();
 runTranscriptScrollKeepsInputPinnedRegression();
 runEditorStatusGapRegression();
 runEditorBusySpacingRegression();
+runEditorWordWrapRegression();
 runEditorSessionResetRegression();
 runEditorImmediateSlashRegression();
 runThemeSelectorStartsOnActiveThemeRegression();

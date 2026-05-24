@@ -537,7 +537,7 @@ function renderEditorLines({ prompt, text = "", placeholder = "message..." }, wi
   const promptWidth = visibleWidth(prompt);
   const rowWidth = Math.max(1, width - promptWidth);
   if (!text) return [`${prompt}${fakeCursor}${theme.muted}${placeholder}${reset}`];
-  const rows = wrapEditorInput(text, rowWidth);
+  const rows = appendEditorCursor(wrapEditorInput(text, rowWidth), rowWidth);
   return rows.map((row, index) => `${index === 0 ? prompt : " ".repeat(promptWidth)}${row}`);
 }
 
@@ -546,18 +546,55 @@ function renderInputRail(width, theme = fallbackTheme) {
 }
 
 function wrapEditorInput(text, width) {
+  const max = Math.max(1, Number(width) || 1);
   const rows = [];
-  let row = "";
-  const cells = [...Array.from(text), fakeCursor];
-  for (const cell of cells) {
-    if (visibleWidth(row) >= width) {
-      rows.push(row);
-      row = "";
+  for (const paragraph of String(text ?? "").split(/\r?\n/)) {
+    const tokens = paragraph.match(/\S+|\s+/g) ?? [""];
+    let row = "";
+    for (const token of tokens) {
+      if (/^\s+$/.test(token)) {
+        if (!row) continue;
+        if (visibleWidth(row) + visibleWidth(token) <= max) {
+          row += token;
+        } else {
+          rows.push(row.trimEnd());
+          row = "";
+        }
+        continue;
+      }
+
+      let word = token;
+      while (visibleWidth(word) > max) {
+        if (row) {
+          rows.push(row.trimEnd());
+          row = "";
+        }
+        rows.push(word.slice(0, max));
+        word = word.slice(max);
+      }
+
+      if (visibleWidth(row) + visibleWidth(word) > max && row) {
+        rows.push(row.trimEnd());
+        row = word;
+      } else {
+        row += word;
+      }
     }
-    row += cell;
+    rows.push(row.trimEnd());
   }
-  if (row || rows.length === 0) rows.push(row);
   return rows;
+}
+
+function appendEditorCursor(rows, width) {
+  const max = Math.max(1, Number(width) || 1);
+  const output = rows.length ? [...rows] : [""];
+  const last = output.pop() ?? "";
+  if (visibleWidth(last) + visibleWidth(fakeCursor) > max) {
+    output.push(last, fakeCursor);
+  } else {
+    output.push(`${last}${fakeCursor}`);
+  }
+  return output;
 }
 
 function styleAttachmentLabels(text, theme = fallbackTheme, restore = fgReset) {
