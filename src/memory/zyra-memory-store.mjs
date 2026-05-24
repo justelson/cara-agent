@@ -18,7 +18,6 @@ import {
   writeMemoryStateFile,
 } from "./zyra-memory-state.mjs";
 import {
-  redactSecrets,
   renderConsolidationInstructions,
   renderPhase2WorkerPrompt,
   renderStage1WorkerPrompt,
@@ -30,6 +29,10 @@ import {
 import { createMemoryPhase2Path } from "./zyra-memory-phase2.mjs";
 import { createMemorySessionPath } from "./zyra-memory-sessions.mjs";
 import { createMemoryStage1Path } from "./zyra-memory-stage1.mjs";
+import {
+  normalizeStage1WorkerOutput as normalizeStage1WorkerOutputPayload,
+  parseMemoryWorkerJson as parseMemoryWorkerJsonPayload,
+} from "./zyra-memory-worker-io.mjs";
 import { createMemoryWorkspacePath } from "./zyra-memory-workspace.mjs";
 
 export { STATE_VERSION } from "./zyra-memory-state.mjs";
@@ -528,44 +531,11 @@ export function buildPhase2WorkerPrompt(root, options = {}) {
 }
 
 export function parseMemoryWorkerJson(text, requiredKeys = []) {
-  const raw = String(text ?? "").trim();
-  if (!raw) throw new Error("Memory worker returned an empty response.");
-  const candidates = [];
-  candidates.push(raw);
-  const fence = raw.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  if (fence) candidates.push(fence[1].trim());
-  const objectMatch = raw.match(/\{[\s\S]*\}/);
-  if (objectMatch) candidates.push(objectMatch[0]);
-
-  let parsed;
-  let lastError;
-  for (const candidate of candidates) {
-    try {
-      parsed = JSON.parse(candidate);
-      break;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`Memory worker returned invalid JSON: ${lastError?.message ?? "not an object"}`);
-  }
-  for (const key of requiredKeys) {
-    if (!(key in parsed)) throw new Error(`Memory worker JSON missing key: ${key}`);
-  }
-  return parsed;
+  return parseMemoryWorkerJsonPayload(text, requiredKeys);
 }
 
 export function normalizeStage1WorkerOutput(output) {
-  const rolloutSummary = redactSecrets(output?.rollout_summary ?? output?.rolloutSummary ?? "").trim();
-  const rolloutSlug = sanitizeSlug(output?.rollout_slug ?? output?.rolloutSlug ?? rolloutSummary).slice(0, 80);
-  const rawMemory = redactSecrets(output?.raw_memory ?? output?.rawMemory ?? "").trim();
-  return {
-    rolloutSummary,
-    rolloutSlug,
-    rawMemory,
-    isEmpty: !rolloutSummary || !rawMemory,
-  };
+  return normalizeStage1WorkerOutputPayload(output);
 }
 
 export function writePhase2WorkerOutput(root, output) {
