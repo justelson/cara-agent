@@ -26,6 +26,7 @@ import {
   runZyraPrompt,
   runZyraPrintPrompt,
   saveZyraExitSummary,
+  startZyraMemoryBackgroundStartup,
   logoutZyraAuth,
   setZyraTheme,
   setModel,
@@ -276,6 +277,7 @@ async function main() {
   let runtime = await createZyraSession(runtimeOptions).finally(stopStarting);
   ui.setTheme(runtime.terminalTheme);
   ui.banner(describeRuntime(runtime));
+  startZyraMemoryBackgroundStartup(runtime);
   let unsubscribe = runtime.session.subscribe((event) => ui.event(event));
   if (runtime.modelFallbackMessage) {
     ui.info(runtime.modelFallbackMessage);
@@ -300,6 +302,7 @@ async function main() {
     runtime = nextRuntime;
     ui.setTheme(runtime.terminalTheme);
     ui.resetSession(describeRuntime(runtime));
+    startZyraMemoryBackgroundStartup(runtime);
     unsubscribe = runtime.session.subscribe((event) => ui.event(event));
     if (runtime.modelFallbackMessage) {
       ui.info(runtime.modelFallbackMessage);

@@ -265,6 +265,70 @@ async function runMemoryWorkerNoOutputRegression() {
   });
 }
 
+async function runMemoryStartupWorkerSkipsCurrentRegression() {
+  await withTempRootAsync(async (root) => {
+    ensureZyraMemory(root);
+    const sessions = path.join(root, ".zyra", "sessions");
+    const oldSession = path.join(sessions, "old.jsonl");
+    const currentSession = path.join(sessions, "current.jsonl");
+    writeSession(oldSession, {
+      id: "old-startup-thread",
+      cwd: root,
+      updatedAt: "2026-05-20T00:00:00.000Z",
+      userText: "remember old startup sessions should run in the background",
+    });
+    writeSession(currentSession, {
+      id: "current-startup-thread",
+      cwd: root,
+      updatedAt: "2026-05-20T00:00:00.000Z",
+      userText: "current live session should not be sampled by startup memory",
+    });
+
+    const sampled = [];
+    const runtime = {
+      root,
+      project: root,
+      sessions,
+      session: {
+        sessionManager: {
+          getSessionFile: () => currentSession,
+          getSessionId: () => "current-startup-thread",
+          getCwd: () => root,
+          getEntries: () => [],
+        },
+      },
+    };
+
+    const result = await runZyraMemoryConsolidation(runtime, {
+      root,
+      includeCurrent: false,
+      maxStartupClaims: 10,
+      minIdleMinutes: 0,
+      stage1Sampler: async ({ prep }) => {
+        sampled.push(prep.threadId);
+        return {
+          rollout_summary: "Old startup session captured durable memory.",
+          rollout_slug: "old_startup_session",
+          raw_memory: "- Background startup memory should process old idle sessions, not the current live session.",
+        };
+      },
+      phase2Sampler: async ({ prompt }) => {
+        assert.match(prompt, /phase2_workspace_diff\.md/);
+        return {
+          memory_summary: "v1\n\n## Zyra Memory\n\n- Background memory startup processes old idle sessions.",
+          memory_handbook: "# Zyra Memory\n\nscope: Background memory startup regression.\n\n- Startup memory excludes the current live session.",
+        };
+      },
+    });
+
+    assert.deepEqual(sampled, ["old-startup-thread"]);
+    assert.equal(result.stage1.succeeded, 1);
+    const sources = listZyraMemorySources(root);
+    assert.equal(sources.some((source) => source.threadId === "old-startup-thread"), true);
+    assert.equal(sources.some((source) => source.threadId === "current-startup-thread"), false);
+  });
+}
+
 function runOverviewRegression() {
   withTempRoot((root) => {
     ensureZyraMemory(root);
@@ -419,6 +483,7 @@ runConsolidationPromptRegression();
 runMemoryWorkerJsonRegression();
 await runMemoryWorkerConsolidationRegression();
 await runMemoryWorkerNoOutputRegression();
+await runMemoryStartupWorkerSkipsCurrentRegression();
 runOverviewRegression();
 runSessionScanAndJobClaimRegression();
 runPhase2LockAndRetentionRegression();

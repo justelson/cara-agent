@@ -1194,7 +1194,7 @@ export async function runZyraMemoryConsolidation(runtime, options = {}) {
   const prepared = collectPreparedMemoryJobs([
     ...previousPrepared,
     ...preparedJobsFromStartup(startup),
-    prepareZyraCurrentStage1Job(root, runtime, options.currentJobOptions),
+    ...(options.includeCurrent === false ? [] : [prepareZyraCurrentStage1Job(root, runtime, options.currentJobOptions)]),
   ]);
 
   const stage1 = {
@@ -1255,6 +1255,35 @@ export async function runZyraMemoryConsolidation(runtime, options = {}) {
 
   const phase2 = await runPhase2MemoryWorker(root, runtime, options);
   return { root, startup, stage1, phase2 };
+}
+
+export function startZyraMemoryBackgroundStartup(runtime, options = {}) {
+  if (options.disabled || process.env.ZYRA_MEMORY_BACKGROUND === "0") {
+    const skipped = Promise.resolve({ skipped: true, reason: "disabled" });
+    runtime.memoryBackgroundStartup = skipped;
+    return skipped;
+  }
+
+  const delayMs = Math.max(0, Number(options.delayMs ?? 1200));
+  const task = new Promise((resolve) => {
+    setTimeout(() => {
+      runZyraMemoryConsolidation(runtime, {
+        includeCurrent: false,
+        maxStartupClaims: options.maxStartupClaims ?? 2,
+        minIdleMinutes: options.minIdleMinutes,
+        phase2CooldownSeconds: options.phase2CooldownSeconds ?? 0,
+      })
+        .then(resolve)
+        .catch((error) => {
+          resolve({
+            skipped: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    }, delayMs);
+  });
+  runtime.memoryBackgroundStartup = task;
+  return task;
 }
 
 export function buildZyraMemorySearch(query) {
