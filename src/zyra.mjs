@@ -6,23 +6,17 @@ import path from "node:path";
 import {
   buildInspectPrompt,
   buildZyraAuthAccountStatus,
-  buildZyraMemoryJobs,
-  buildZyraMemorySearch,
-  buildZyraMemorySources,
   buildSessionInfo,
   checkSetup,
   createZyraSession,
+  createZyraMemoryController,
   defaults,
   describeRuntime,
-  disableZyraMemorySource,
   fetchCodexUsageStats,
   loadCustomCommand,
   loginZyraAuth,
   listZyraSessions,
-  rebuildZyraMemorySources,
   reloadZyraRuntime,
-  runZyraMemoryConsolidation,
-  runZyraRuntimeMemoryStartup,
   runZyraPrompt,
   runZyraPrintPrompt,
   saveZyraExitSummary,
@@ -429,6 +423,7 @@ async function handleSlash(runtime, ui, input, controls = {}) {
     return true;
   }
   if (command === "/memory") {
+    const memory = createZyraMemoryController(runtime);
     const [memoryActionRaw, ...memoryRest] = rest;
     const memoryAction = memoryActionRaw?.toLowerCase();
     const memoryArg = memoryRest.join(" ").trim();
@@ -439,39 +434,48 @@ async function handleSlash(runtime, ui, input, controls = {}) {
     if (memoryAction === "search") {
       const query = memoryArg || arg.replace(/^search\s*/i, "").trim();
       if (!query) ui.info("Usage: /memory search <query>");
-      else ui.block(buildZyraMemorySearch(query));
+      else ui.block(memory.search(query));
       return true;
     }
     if (memoryAction === "sources") {
-      ui.block(buildZyraMemorySources());
+      ui.block(memory.sources());
       return true;
     }
     if (memoryAction === "jobs") {
-      ui.block(buildZyraMemoryJobs());
+      ui.block(memory.jobs());
       return true;
     }
     if (memoryAction === "startup") {
-      const result = runZyraRuntimeMemoryStartup(runtime);
-      ui.info(`Memory startup: ${result.claimed} claimed, ${result.prepared} prepared, ${result.pruned} pruned.`);
+      ui.info(memory.startup().message);
+      return true;
+    }
+    if (memoryAction === "mode") {
+      if (!memoryArg) {
+        const { threadId, mode } = memory.threadMode();
+        ui.info(`Memory mode for ${threadId}: ${mode}`);
+      } else {
+        ui.info(memory.setThreadMode(memoryArg).message);
+      }
+      return true;
+    }
+    if (memoryAction === "enable" || memoryAction === "disable") {
+      ui.info(memory.setThreadMode(memoryAction === "enable" ? "enabled" : "disabled").message);
       return true;
     }
     if (memoryAction === "forget") {
       const threadId = memoryArg;
       if (!threadId) {
         ui.info("Usage: /memory forget <source-id>");
-      } else if (disableZyraMemorySource(threadId)) {
-        ui.info(`Memory source disabled: ${threadId}`);
       } else {
-        ui.info(`No memory source found: ${threadId}`);
+        ui.info(memory.forgetSource(threadId).message);
       }
       return true;
     }
     if (memoryAction === "rebuild") {
-      const outputs = rebuildZyraMemorySources();
-      ui.info(`Memory inputs rebuilt: ${outputs.length} source${outputs.length === 1 ? "" : "s"}.`);
+      ui.info(memory.rebuild().message);
       return true;
     }
-    ui.info("Usage: /memory, /memory search <query>, /memory sources, /memory jobs, /memory startup, /memory forget <source-id>");
+    ui.info("Usage: /memory, /memory search <query>, /memory sources, /memory jobs, /memory startup, /memory mode [enabled|disabled|polluted], /memory forget <source-id>");
     return true;
   }
   if (command === "/auth" || command === "/account") {
@@ -518,10 +522,11 @@ async function handleSlash(runtime, ui, input, controls = {}) {
     return true;
   }
   if (command === "/consolidate") {
+    const memory = createZyraMemoryController(runtime);
     ui.beginProgress("Consolidating memory");
     try {
-      const result = await runZyraMemoryConsolidation(runtime);
-      ui.info(formatMemoryConsolidationResult(result));
+      const result = await memory.consolidate();
+      ui.info(memory.formatConsolidationResult(result));
     } finally {
       ui.endProgress();
     }
@@ -597,20 +602,6 @@ function restartZyraProcess(runtime, options = {}) {
     process.exit(1);
   }
   process.exit(result.status ?? 0);
-}
-
-function formatMemoryConsolidationResult(result) {
-  const stage1 = result.stage1 ?? {};
-  const phase2 = result.phase2 ?? {};
-  const parts = [
-    `stage-1 ${stage1.succeeded ?? 0} saved`,
-    `${stage1.noOutput ?? 0} no-op`,
-    `${stage1.failed ?? 0} failed`,
-    `phase-2 ${phase2.status ?? "unknown"}`,
-  ];
-  if (phase2.selected !== undefined) parts.push(`${phase2.selected} selected`);
-  if (phase2.error) parts.push(phase2.error);
-  return `Memory consolidated: ${parts.join(", ")}.`;
 }
 
 function isExitInput(input) {

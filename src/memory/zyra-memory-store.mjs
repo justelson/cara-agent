@@ -37,6 +37,7 @@ const DEFAULT_PHASE2_COOLDOWN_SECONDS = 6 * 60 * 60;
 const DEFAULT_RETRY_REMAINING = 3;
 const DEFAULT_RETRY_DELAY_SECONDS = 15 * 60;
 const MAX_WORKSPACE_DIFF_BYTES = 4 * 1024 * 1024;
+const MEMORY_MODES = new Set(["enabled", "disabled", "polluted"]);
 
 const LEGACY_LAYER_FILES = [
   "cara-profile.md",
@@ -296,7 +297,7 @@ export function claimStage1JobsForStartup(root, params = {}) {
 
     const threadId = sanitizeId(source.threadId);
     const state = readMemoryState(root);
-    if (state.threadMemoryModes?.[threadId] && state.threadMemoryModes[threadId] !== "enabled") continue;
+    if (normalizeStoredMemoryMode(state.threadMemoryModes?.[threadId]) !== "enabled") continue;
     const existing = readStage1Output(root, threadId);
     if (existing && Date.parse(existing.sourceUpdatedAt) >= sourceUpdatedAtMs) continue;
 
@@ -316,6 +317,10 @@ export function tryClaimStage1Job(root, source, options = {}) {
   const nowMs = Date.parse(now);
   const threadId = sanitizeId(source.threadId ?? sessionIdFromPath(source.sourcePath));
   const state = readMemoryState(root);
+  const threadMemoryMode = normalizeStoredMemoryMode(state.threadMemoryModes?.[threadId]);
+  if (threadMemoryMode !== "enabled") {
+    return { status: `skipped_memory_${threadMemoryMode}`, threadId, memoryMode: threadMemoryMode };
+  }
   const jobs = state.jobs[JOB_KIND_STAGE1] ?? {};
   const existing = jobs[threadId];
   if (["running", "prepared"].includes(existing?.status) && Date.parse(existing.leaseUntil ?? 0) > nowMs) {
@@ -680,20 +685,26 @@ export function buildMemoryPrompt(root, options = {}) {
   return parts.join("\n").trim();
 }
 
-export function buildMemoryOverview(root) {
+export function buildMemoryOverview(root, options = {}) {
   ensureMemoryWorkspace(root);
   const paths = getMemoryPaths(root);
   const state = readMemoryState(root);
   const outputs = listStage1Outputs(root);
   const enabled = outputs.filter((item) => item.memoryMode !== "disabled" && item.memoryMode !== "polluted");
   const summaryBullets = extractBullets(readText(paths.summary)).slice(0, 6);
+  const skillNames = listMemorySkillNames(paths.skills);
+  const currentThreadId = sanitizeId(options.threadId);
   const lines = ["Zyra memory"];
   lines.push("", "Workspace");
   lines.push(`  Summary: ${path.relative(root, paths.summary)}`);
   lines.push(`  Handbook: ${path.relative(root, paths.handbook)}`);
+  lines.push(`  Skills: ${skillNames.length}`);
   lines.push(`  Stage outputs: ${outputs.length}`);
   lines.push(`  Selected for context: ${enabled.length}`);
   lines.push(`  Last sync: ${state.phase2.lastInputSyncAt ?? "never"}`);
+  if (currentThreadId) {
+    lines.push(`  Current thread: ${currentThreadId} (${getThreadMemoryMode(root, currentThreadId)})`);
+  }
 
   lines.push("", "What is loaded");
   if (summaryBullets.length) {
@@ -776,18 +787,35 @@ export function recordMemoryUsage(root, threadIds = []) {
 }
 
 export function setMemoryMode(root, threadId, memoryMode) {
-  if (!["enabled", "disabled", "polluted"].includes(memoryMode)) {
-    throw new Error(`Invalid memory mode: ${memoryMode}`);
-  }
+  const normalizedMode = normalizeMemoryMode(memoryMode);
   const output = readStage1Output(root, threadId);
   if (!output) return false;
-  output.memoryMode = memoryMode;
+  output.memoryMode = normalizedMode;
   upsertStage1Output(root, output);
   return true;
 }
 
 export function forgetMemory(root, threadId) {
   return setMemoryMode(root, threadId, "disabled");
+}
+
+export function getThreadMemoryMode(root, threadId) {
+  ensureMemoryWorkspace(root);
+  const id = sanitizeId(threadId);
+  if (!id) return "enabled";
+  const mode = readMemoryState(root).threadMemoryModes?.[id];
+  return normalizeStoredMemoryMode(mode);
+}
+
+export function setThreadMemoryMode(root, threadId, memoryMode) {
+  ensureMemoryWorkspace(root);
+  const id = sanitizeId(threadId);
+  if (!id) throw new Error("Thread memory mode requires a thread id.");
+  const mode = normalizeMemoryMode(memoryMode);
+  const state = readMemoryState(root);
+  state.threadMemoryModes[id] = mode;
+  writeMemoryState(root, state);
+  return { threadId: id, mode };
 }
 
 export function listMemorySources(root) {
@@ -1367,6 +1395,18 @@ function normalizeSkillFilePath(value) {
   return relative;
 }
 
+function normalizeMemoryMode(value) {
+  const mode = String(value ?? "").trim().toLowerCase();
+  if (!MEMORY_MODES.has(mode)) {
+    throw new Error(`Invalid memory mode: ${value}`);
+  }
+  return mode;
+}
+
+function normalizeStoredMemoryMode(value) {
+  return MEMORY_MODES.has(value) ? value : "enabled";
+}
+
 function assertInsidePath(parent, target, label) {
   const parentPath = path.resolve(parent);
   const targetPath = path.resolve(target);
@@ -1608,6 +1648,15 @@ function listMemorySkillFiles(skillsRoot) {
   }
   return files
     .filter((file) => /\.(md|txt|json|ya?ml|py|js|mjs|sh|ps1)$/i.test(file))
+    .sort();
+}
+
+function listMemorySkillNames(skillsRoot) {
+  return safeReadDir(skillsRoot)
+    .filter((skillName) => {
+      const skillDir = path.join(skillsRoot, skillName);
+      return existsSync(path.join(skillDir, "SKILL.md"));
+    })
     .sort();
 }
 

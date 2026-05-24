@@ -15,6 +15,7 @@ import {
   forgetZyraMemory,
   listZyraMemorySources,
   parseZyraMemoryWorkerJson,
+  prepareZyraCurrentStage1Job,
   prepareZyraStage1Inputs,
   pruneZyraMemory,
   readZyraMemory,
@@ -25,6 +26,7 @@ import {
   upsertZyraStage1Memory,
   writeZyraPhase2WorkerOutput,
 } from "../src/zyra-memory.mjs";
+import { createMemoryController } from "../src/memory/zyra-memory-controller.mjs";
 import { runZyraMemoryConsolidation } from "../src/zyra-sdk.mjs";
 
 function withTempRoot(fn) {
@@ -314,6 +316,43 @@ function runPhase2SkillArtifactRegression() {
       }),
       /Invalid memory skill support file path/,
     );
+  });
+}
+
+function runMemoryControllerThreadModeRegression() {
+  withTempRoot((root) => {
+    ensureZyraMemory(root);
+    const sessionFile = path.join(root, ".zyra", "sessions", "mode.jsonl");
+    mkdirSync(path.dirname(sessionFile), { recursive: true });
+    writeFileSync(sessionFile, "", "utf8");
+    const runtime = {
+      root,
+      project: root,
+      session: {
+        sessionManager: {
+          getSessionId: () => "mode-thread",
+          getSessionFile: () => sessionFile,
+          getCwd: () => root,
+          getEntries: () => [
+            {
+              type: "message",
+              timestamp: "2026-05-24T00:00:00.000Z",
+              message: { role: "user", content: "remember thread memory can be disabled" },
+            },
+          ],
+        },
+      },
+    };
+    const memory = createMemoryController({ root, runtime });
+
+    assert.equal(memory.threadMode().mode, "enabled");
+    assert.match(memory.overview().join("\n"), /Current thread: mode-thread \(enabled\)/);
+    assert.equal(memory.setThreadMode("disabled").mode, "disabled");
+    assert.equal(memory.threadMode().mode, "disabled");
+    assert.equal(prepareZyraCurrentStage1Job(root, runtime).status, "skipped_memory_disabled");
+    assert.match(memory.overview().join("\n"), /Current thread: mode-thread \(disabled\)/);
+    assert.equal(memory.setThreadMode("enabled").mode, "enabled");
+    assert.equal(prepareZyraCurrentStage1Job(root, runtime).status, "prepared");
   });
 }
 
@@ -628,6 +667,7 @@ runConsolidationPromptRegression();
 runMemoryWorkerJsonRegression();
 await runMemoryWorkerConsolidationRegression();
 runPhase2SkillArtifactRegression();
+runMemoryControllerThreadModeRegression();
 await runMemoryWorkerRepairRegression();
 await runMemoryWorkerNoOutputRegression();
 await runMemoryStartupWorkerSkipsCurrentRegression();

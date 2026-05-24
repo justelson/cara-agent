@@ -13,6 +13,7 @@ import {
   formatMemorySources,
   formatSearchResults,
   getMemoryPaths,
+  getThreadMemoryMode,
   listMemorySources,
   markGlobalPhase2JobFailed,
   markGlobalPhase2JobSucceeded,
@@ -32,6 +33,7 @@ import {
   runMemoryStartup,
   searchMemory,
   scanMemorySessionSources,
+  setThreadMemoryMode,
   upsertStage1Output,
   writePhase2WorkerOutput,
 } from "./memory/zyra-memory-store.mjs";
@@ -53,8 +55,8 @@ export function readZyraMemory(root) {
   };
 }
 
-export function buildMemoryOverview(root) {
-  return buildStoreMemoryOverview(root);
+export function buildMemoryOverview(root, options = {}) {
+  return buildStoreMemoryOverview(root, options);
 }
 
 export function buildLayeredMemoryPrompt(root, options = {}) {
@@ -133,6 +135,14 @@ export function formatZyraMemorySources(root) {
 
 export function forgetZyraMemory(root, threadId) {
   return forgetMemory(root, threadId);
+}
+
+export function getZyraThreadMemoryMode(root, threadId) {
+  return getThreadMemoryMode(root, threadId);
+}
+
+export function setZyraThreadMemoryMode(root, threadId, memoryMode) {
+  return setThreadMemoryMode(root, threadId, memoryMode);
 }
 
 export function rebuildZyraMemory(root) {

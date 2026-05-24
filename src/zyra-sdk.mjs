@@ -5,10 +5,10 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { normalizeOpeningTheme, pickOpeningTheme } from "./banner.mjs";
+import { createMemoryController } from "./memory/zyra-memory-controller.mjs";
 import {
   buildConsolidationPrompt,
   buildLayeredMemoryPrompt,
-  buildMemoryOverview,
   buildRecommendedPrompts,
   buildZyraPhase2WorkerPrompt,
   buildZyraStage1WorkerPrompt,
@@ -19,16 +19,11 @@ import {
   ensureZyraMemory,
   failZyraPhase2Job,
   failZyraStage1Job,
-  forgetZyraMemory,
-  formatZyraMemorySearch,
-  formatZyraMemorySources,
   normalizeZyraStage1WorkerOutput,
   parseZyraMemoryWorkerJson,
   prepareZyraCurrentStage1Job,
   prepareZyraMemoryWorkspace,
   prepareZyraPhase2Workspace,
-  readZyraMemory,
-  rebuildZyraMemory,
   resetZyraMemoryWorkspaceBaseline,
   runZyraMemoryStartup,
   writeZyraPhase2WorkerOutput,
@@ -1115,7 +1110,7 @@ export function describeRuntime(runtime) {
     usage,
     contextUsage,
     projectMemory: runtime.projectMemory ?? [],
-    memoryOverview: buildMemoryOverview(defaults.root),
+    memoryOverview: createZyraMemoryController(runtime).overview(),
     recommendedPrompts: buildRecommendedPrompts(defaults.root),
     customCommands: listCustomCommands(runtime),
     terminalTheme: runtime.terminalTheme?.name ?? DEFAULT_TERMINAL_THEME,
@@ -1319,56 +1314,40 @@ export function startZyraMemoryBackgroundStartup(runtime, options = {}) {
   return task;
 }
 
+export function createZyraMemoryController(runtime, options = {}) {
+  const root = path.resolve(options.root ?? defaults.root);
+  return createMemoryController({
+    root,
+    runtime,
+    consolidate: (controllerRuntime, consolidateOptions = {}) => runZyraMemoryConsolidation(
+      controllerRuntime ?? runtime,
+      { ...consolidateOptions, root },
+    ),
+  });
+}
+
 export function buildZyraMemorySearch(query) {
-  return formatZyraMemorySearch(defaults.root, query, { contextLines: 1, maxResults: 12, normalized: true });
+  return createZyraMemoryController().search(query);
 }
 
 export function buildZyraMemorySources() {
-  return formatZyraMemorySources(defaults.root);
+  return createZyraMemoryController().sources();
 }
 
 export function buildZyraMemoryJobs() {
-  const state = readZyraMemory(defaults.root).state;
-  const lines = ["Memory jobs"];
-  const stage1Jobs = Object.values(state.jobs?.memory_stage1 ?? {});
-  const phase2Jobs = Object.values(state.jobs?.memory_consolidate_global ?? {});
-  if (!stage1Jobs.length && !phase2Jobs.length) {
-    lines.push("", "  No memory jobs yet.");
-    return lines;
-  }
-  if (stage1Jobs.length) {
-    lines.push("", "Stage 1");
-    for (const job of stage1Jobs.slice(0, 20)) {
-      lines.push(`  ${job.jobKey}  ${job.status}`);
-      lines.push(`    source: ${job.sourcePath ?? "unknown"}`);
-      if (job.leaseUntil) lines.push(`    lease: ${job.leaseUntil}`);
-      if (job.lastError) lines.push(`    error: ${job.lastError}`);
-    }
-  }
-  if (phase2Jobs.length) {
-    lines.push("", "Phase 2");
-    for (const job of phase2Jobs) {
-      lines.push(`  ${job.jobKey}  ${job.status}`);
-      lines.push(`    watermark: ${job.inputWatermark ?? 0}`);
-      if (job.leaseUntil) lines.push(`    lease: ${job.leaseUntil}`);
-      if (job.lastError) lines.push(`    error: ${job.lastError}`);
-    }
-  }
-  return lines;
+  return createZyraMemoryController().jobs();
 }
 
 export function disableZyraMemorySource(threadId) {
-  return forgetZyraMemory(defaults.root, threadId);
+  return createZyraMemoryController().forgetSource(threadId).ok;
 }
 
 export function rebuildZyraMemorySources() {
-  return rebuildZyraMemory(defaults.root);
+  return createZyraMemoryController().rebuild().outputs;
 }
 
 export function runZyraRuntimeMemoryStartup(runtime, options = {}) {
-  const result = runZyraMemoryStartup(defaults.root, runtime, options);
-  runtime.memoryStartup = result;
-  return result;
+  return createZyraMemoryController(runtime).startup(options).result;
 }
 
 export function listCustomCommands(runtime) {
