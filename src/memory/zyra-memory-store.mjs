@@ -1,10 +1,7 @@
 import {
   existsSync,
-  mkdirSync,
   readFileSync,
   readdirSync,
-  statSync,
-  writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import {
@@ -26,6 +23,7 @@ import {
   createMemoryReadPath,
   renderSkillsForPrompt,
 } from "./zyra-memory-read.mjs";
+import { createMemoryBootstrapPath } from "./zyra-memory-bootstrap.mjs";
 import { createMemoryPhase2Path } from "./zyra-memory-phase2.mjs";
 import { createMemorySessionPath } from "./zyra-memory-sessions.mjs";
 import { createMemoryStage1Path } from "./zyra-memory-stage1.mjs";
@@ -60,6 +58,7 @@ const DEFAULT_PHASE2_COOLDOWN_SECONDS = 6 * 60 * 60;
 const DEFAULT_RETRY_REMAINING = 3;
 const DEFAULT_RETRY_DELAY_SECONDS = 15 * 60;
 const MAX_WORKSPACE_DIFF_BYTES = 4 * 1024 * 1024;
+const DEFAULT_RAW_MEMORIES = "# Raw Memories\n\nNo raw memories yet.\n";
 const LEGACY_LAYER_FILES = [
   "cara-profile.md",
   "interaction-rhythm.md",
@@ -144,31 +143,7 @@ export function getMemoryPaths(root) {
 }
 
 export function ensureMemoryWorkspace(root) {
-  const paths = getMemoryPaths(root);
-  migrateLegacyMemoryDir(root);
-  for (const dir of [
-    paths.root,
-    paths.stage1,
-    paths.stage1Inputs,
-    paths.rolloutSummaries,
-    paths.skills,
-    paths.adHoc,
-    paths.adHocNotes,
-  ]) {
-    mkdirSync(dir, { recursive: true });
-  }
-
-  writeIfMissing(paths.summary, DEFAULT_SUMMARY);
-  writeIfMissing(paths.handbook, DEFAULT_HANDBOOK);
-  writeIfMissing(paths.rawMemories, "# Raw Memories\n\nNo raw memories yet.\n");
-  writeIfMissing(paths.workspaceGitignore, MEMORY_WORKSPACE_GITIGNORE);
-  writeIfMissing(paths.adHocInstructions, AD_HOC_INSTRUCTIONS);
-
-  let state = readMemoryState(root);
-  state = migrateLegacyLayerFiles(root, state);
-  writeMemoryState(root, state);
-  rebuildPhase2Inputs(root);
-  return readMemoryState(root);
+  return memoryBootstrapPath().ensureMemoryWorkspace(root);
 }
 
 export function readMemoryState(root) {
@@ -181,6 +156,26 @@ export function writeMemoryState(root, state) {
 
 function memoryState(root) {
   return createMemoryStateRuntime(getMemoryPaths(root).state);
+}
+
+function memoryBootstrapPath() {
+  return createMemoryBootstrapPath({
+    getMemoryPaths,
+    readMemoryState,
+    writeMemoryState,
+    rebuildPhase2Inputs,
+    createEmptyMemoryState,
+    upsertStage1OutputWithoutEnsure,
+    stage1Metadata,
+    memoryDir: MEMORY_DIR,
+    legacyMemoryDir: LEGACY_MEMORY_DIR,
+    defaultSummary: DEFAULT_SUMMARY,
+    defaultHandbook: DEFAULT_HANDBOOK,
+    defaultRawMemories: DEFAULT_RAW_MEMORIES,
+    memoryWorkspaceGitignore: MEMORY_WORKSPACE_GITIGNORE,
+    adHocInstructions: AD_HOC_INSTRUCTIONS,
+    legacyLayerFiles: LEGACY_LAYER_FILES,
+  });
 }
 
 function memoryStage1OutputPath() {
@@ -505,74 +500,7 @@ export function formatMemorySources(sources) {
 }
 
 function ensureBareMemoryWorkspace(root) {
-  const paths = getMemoryPaths(root);
-  for (const dir of [paths.root, paths.stage1, paths.stage1Inputs, paths.rolloutSummaries]) {
-    mkdirSync(dir, { recursive: true });
-  }
-  writeIfMissing(paths.summary, DEFAULT_SUMMARY);
-  writeIfMissing(paths.handbook, DEFAULT_HANDBOOK);
-  writeIfMissing(paths.rawMemories, "# Raw Memories\n\nNo raw memories yet.\n");
-  writeIfMissing(paths.state, `${JSON.stringify(createEmptyMemoryState(), null, 2)}\n`);
-}
-
-function migrateLegacyMemoryDir(root) {
-  const primary = path.join(path.resolve(root), MEMORY_DIR);
-  const legacy = path.join(path.resolve(root), LEGACY_MEMORY_DIR);
-  if (existsSync(primary) || !existsSync(legacy)) return;
-  mkdirSync(path.dirname(primary), { recursive: true });
-  mkdirSync(primary, { recursive: true });
-  for (const file of safeReadDir(legacy)) {
-    const source = path.join(legacy, file);
-    const target = path.join(primary, file);
-    if (statSync(source).isFile() && !existsSync(target)) {
-      writeFileSync(target, readFileSync(source));
-    }
-  }
-}
-
-function migrateLegacyLayerFiles(root, state) {
-  const paths = getMemoryPaths(root);
-  if (state.migrations.legacyLayersAt) return state;
-  const legacy = [];
-  let newest = 0;
-  for (const file of LEGACY_LAYER_FILES) {
-    const fullPath = path.join(paths.root, file);
-    if (!existsSync(fullPath)) continue;
-    const text = readText(fullPath).trim();
-    if (!text) continue;
-    const stat = statSync(fullPath);
-    newest = Math.max(newest, stat.mtimeMs);
-    legacy.push(`File: ${file}\n${text}`);
-  }
-  if (!legacy.length) {
-    state.migrations.legacyLayersAt = new Date().toISOString();
-    return state;
-  }
-
-  const migrated = upsertStage1OutputWithoutEnsure(root, {
-    threadId: "legacy-layers",
-    sourcePath: paths.root,
-    sourceUpdatedAt: new Date(newest || Date.now()).toISOString(),
-    cwd: root,
-    generatedAt: new Date().toISOString(),
-    rolloutSlug: "legacy_zyra_memory_layers",
-    rolloutSummary: "Migrated the old Zyra markdown memory layers into the staged memory workspace.",
-    rawMemory: [
-      "## Legacy Zyra Memory Layers",
-      "",
-      "These notes were migrated from the pre-staged `.zyra/memory/*.md` layer files.",
-      "Treat them as seed memory until newer session-backed evidence replaces them.",
-      "",
-      legacy.join("\n\n---\n\n"),
-    ].join("\n"),
-    memoryMode: "enabled",
-    usageCount: 0,
-  });
-
-  state.stage1Outputs[migrated.threadId] = stage1Metadata(migrated);
-  state.phase2.selectedThreadIds = [...new Set([...(state.phase2.selectedThreadIds ?? []), migrated.threadId])];
-  state.migrations.legacyLayersAt = new Date().toISOString();
-  return state;
+  return memoryBootstrapPath().ensureBareMemoryWorkspace(root);
 }
 
 function upsertStage1OutputWithoutEnsure(root, output) {
@@ -621,10 +549,4 @@ function readText(file) {
   } catch {
     return "";
   }
-}
-
-function writeIfMissing(file, content) {
-  if (existsSync(file)) return;
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, content, "utf8");
 }
