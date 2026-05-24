@@ -7,15 +7,19 @@ import {
   buildInspectPrompt,
   buildZyraAuthAccountStatus,
   buildZyraConsolidationPrompt,
+  buildZyraMemorySearch,
+  buildZyraMemorySources,
   buildSessionInfo,
   checkSetup,
   createZyraSession,
   defaults,
   describeRuntime,
+  disableZyraMemorySource,
   fetchCodexUsageStats,
   loadCustomCommand,
   loginZyraAuth,
   listZyraSessions,
+  rebuildZyraMemorySources,
   reloadZyraRuntime,
   runZyraPrompt,
   runZyraPrintPrompt,
@@ -420,7 +424,40 @@ async function handleSlash(runtime, ui, input, controls = {}) {
     return true;
   }
   if (command === "/memory") {
-    ui.memory(describeRuntime(runtime));
+    const [memoryActionRaw, ...memoryRest] = rest;
+    const memoryAction = memoryActionRaw?.toLowerCase();
+    const memoryArg = memoryRest.join(" ").trim();
+    if (!memoryAction) {
+      ui.memory(describeRuntime(runtime));
+      return true;
+    }
+    if (memoryAction === "search") {
+      const query = memoryArg || arg.replace(/^search\s*/i, "").trim();
+      if (!query) ui.info("Usage: /memory search <query>");
+      else ui.block(buildZyraMemorySearch(query));
+      return true;
+    }
+    if (memoryAction === "sources") {
+      ui.block(buildZyraMemorySources());
+      return true;
+    }
+    if (memoryAction === "forget") {
+      const threadId = memoryArg;
+      if (!threadId) {
+        ui.info("Usage: /memory forget <source-id>");
+      } else if (disableZyraMemorySource(threadId)) {
+        ui.info(`Memory source disabled: ${threadId}`);
+      } else {
+        ui.info(`No memory source found: ${threadId}`);
+      }
+      return true;
+    }
+    if (memoryAction === "rebuild") {
+      const outputs = rebuildZyraMemorySources();
+      ui.info(`Memory inputs rebuilt: ${outputs.length} source${outputs.length === 1 ? "" : "s"}.`);
+      return true;
+    }
+    ui.info("Usage: /memory, /memory search <query>, /memory sources, /memory forget <source-id>");
     return true;
   }
   if (command === "/auth" || command === "/account") {

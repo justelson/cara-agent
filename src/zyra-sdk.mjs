@@ -11,6 +11,10 @@ import {
   buildMemoryOverview,
   buildRecommendedPrompts,
   ensureZyraMemory,
+  forgetZyraMemory,
+  formatZyraMemorySearch,
+  formatZyraMemorySources,
+  rebuildZyraMemory,
 } from "./zyra-memory.mjs";
 import { expandFileMentions } from "./file-mentions.mjs";
 import { DEFAULT_TERMINAL_THEME, listTerminalThemes, resolveTerminalTheme } from "./terminal-theme.mjs";
@@ -845,11 +849,13 @@ async function preferDefaultModel(session, selector) {
 
 export async function runZyraPrompt(runtime, prompt, options = {}) {
   const expanded = expandFileMentions(runtime, prompt);
+  injectLayeredMemory(runtime.session, defaults.root, expanded.text);
   await runtime.session.prompt(expanded.text, { source: "interactive", images: options.images });
 }
 
 export async function runZyraPrintPrompt(runtime, prompt, options = {}) {
   const expanded = expandFileMentions(runtime, prompt);
+  injectLayeredMemory(runtime.session, defaults.root, expanded.text);
   await runtime.session.prompt(expanded.text, { source: "print", images: options.images });
   const lastMessage = runtime.session.state?.messages?.at?.(-1);
   if (lastMessage?.role !== "assistant") return "";
@@ -1021,6 +1027,22 @@ function projectPreferencesFile(project) {
 
 export function buildZyraConsolidationPrompt(runtime) {
   return buildConsolidationPrompt({ ...runtime, root: defaults.root }, findProjectMemoryFiles(runtime.project));
+}
+
+export function buildZyraMemorySearch(query) {
+  return formatZyraMemorySearch(defaults.root, query, { contextLines: 1, maxResults: 12, normalized: true });
+}
+
+export function buildZyraMemorySources() {
+  return formatZyraMemorySources(defaults.root);
+}
+
+export function disableZyraMemorySource(threadId) {
+  return forgetZyraMemory(defaults.root, threadId);
+}
+
+export function rebuildZyraMemorySources() {
+  return rebuildZyraMemory(defaults.root);
 }
 
 export function listCustomCommands(runtime) {
@@ -1237,8 +1259,8 @@ function injectProjectMemory(session, project) {
   return files.map((file) => formatRelative(project, file));
 }
 
-function injectLayeredMemory(session, root) {
-  const memory = buildLayeredMemoryPrompt(root);
+function injectLayeredMemory(session, root, query = "") {
+  const memory = buildLayeredMemoryPrompt(root, { query });
   if (!memory) return;
   upsertSystemPromptBlock(session, ZYRA_LAYERED_MEMORY_MARKER, memory, [LEGACY_MARKERS.layeredMemory]);
 }
