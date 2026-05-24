@@ -29,6 +29,7 @@ import {
 import { createMemoryPhase2Path } from "./zyra-memory-phase2.mjs";
 import { createMemorySessionPath } from "./zyra-memory-sessions.mjs";
 import { createMemoryStage1Path } from "./zyra-memory-stage1.mjs";
+import { createMemoryStage1OutputPath } from "./zyra-memory-stage1-outputs.mjs";
 import {
   normalizeStage1WorkerOutput as normalizeStage1WorkerOutputPayload,
   parseMemoryWorkerJson as parseMemoryWorkerJsonPayload,
@@ -182,6 +183,18 @@ function memoryState(root) {
   return createMemoryStateRuntime(getMemoryPaths(root).state);
 }
 
+function memoryStage1OutputPath() {
+  return createMemoryStage1OutputPath({
+    ensureMemoryWorkspace,
+    ensureBareMemoryWorkspace,
+    getMemoryPaths,
+    readMemoryState,
+    memoryState,
+    rebuildPhase2Inputs,
+    effectiveStage1MemoryMode,
+  });
+}
+
 function memoryReadPath() {
   return createMemoryReadPath({
     ensureMemoryWorkspace,
@@ -263,74 +276,15 @@ function memoryWorkspacePath() {
 }
 
 export function upsertStage1Output(root, output) {
-  ensureMemoryWorkspace(root);
-  const paths = getMemoryPaths(root);
-  const now = new Date().toISOString();
-  const threadId = sanitizeId(output.threadId ?? output.sessionId ?? "unknown");
-  const existing = readStage1Output(root, threadId);
-  const sourceUpdatedAt = normalizeIso(output.sourceUpdatedAt) ?? now;
-  const generatedAt = normalizeIso(output.generatedAt) ?? now;
-  const rolloutSlug = sanitizeSlug(output.rolloutSlug ?? output.rolloutSummary ?? threadId);
-  const rawMemory = String(output.rawMemory ?? "").trim();
-  const rolloutSummary = String(output.rolloutSummary ?? "").trim();
-
-  const record = {
-    threadId,
-    sourcePath: output.sourcePath ? path.resolve(output.sourcePath) : "",
-    sourceUpdatedAt,
-    rawMemory,
-    rolloutSummary,
-    rolloutSlug,
-    cwd: output.cwd ? path.resolve(output.cwd) : "",
-    gitBranch: output.gitBranch ?? undefined,
-    generatedAt,
-    memoryMode: ["enabled", "disabled", "polluted"].includes(output.memoryMode) ? output.memoryMode : "enabled",
-    usageCount: Number.isFinite(output.usageCount) ? output.usageCount : existing?.usageCount ?? 0,
-    lastUsage: output.lastUsage ?? existing?.lastUsage,
-  };
-
-  mkdirSync(paths.stage1, { recursive: true });
-  writeFileSync(stage1File(paths.stage1, threadId), `${JSON.stringify(record, null, 2)}\n`, "utf8");
-
-  memoryState(root).upsertStage1OutputMetadata(stage1Metadata(record));
-  rebuildPhase2Inputs(root);
-  return record;
+  return memoryStage1OutputPath().upsertStage1Output(root, output);
 }
 
 export function readStage1Output(root, threadId) {
-  const paths = getMemoryPaths(root);
-  const file = stage1File(paths.stage1, sanitizeId(threadId));
-  if (!existsSync(file)) return undefined;
-  try {
-    return JSON.parse(readFileSync(file, "utf8"));
-  } catch {
-    return undefined;
-  }
+  return memoryStage1OutputPath().readStage1Output(root, threadId);
 }
 
 export function listStage1Outputs(root, options = {}) {
-  ensureBareMemoryWorkspace(root);
-  const paths = getMemoryPaths(root);
-  const state = readMemoryState(root);
-  const files = existsSync(paths.stage1)
-    ? readdirSync(paths.stage1).filter((file) => file.endsWith(".json")).sort()
-    : [];
-  const outputs = files
-    .map((file) => readJsonFile(path.join(paths.stage1, file)))
-    .filter(Boolean)
-    .map((item) => ({ ...item, threadId: sanitizeId(item.threadId ?? path.basename(item.sourcePath ?? file, ".json")) }))
-    .filter((item) => !options.enabledOnly || effectiveStage1MemoryMode(state, item) === "enabled");
-
-  const sorted = outputs.sort((left, right) => {
-    const usageDelta = (right.usageCount ?? 0) - (left.usageCount ?? 0);
-    if (usageDelta) return usageDelta;
-    const leftUsage = Date.parse(left.lastUsage ?? left.sourceUpdatedAt ?? left.generatedAt ?? 0) || 0;
-    const rightUsage = Date.parse(right.lastUsage ?? right.sourceUpdatedAt ?? right.generatedAt ?? 0) || 0;
-    if (rightUsage !== leftUsage) return rightUsage - leftUsage;
-    return String(right.sourceUpdatedAt ?? "").localeCompare(String(left.sourceUpdatedAt ?? ""));
-  });
-
-  return Number.isFinite(options.limit) ? sorted.slice(0, options.limit) : sorted;
+  return memoryStage1OutputPath().listStage1Outputs(root, options);
 }
 
 export function scanMemorySessionSources(project, options = {}) {
@@ -622,47 +576,15 @@ function migrateLegacyLayerFiles(root, state) {
 }
 
 function upsertStage1OutputWithoutEnsure(root, output) {
-  const paths = getMemoryPaths(root);
-  mkdirSync(paths.stage1, { recursive: true });
-  const threadId = sanitizeId(output.threadId ?? "unknown");
-  const record = {
-    threadId,
-    sourcePath: output.sourcePath ? path.resolve(output.sourcePath) : "",
-    sourceUpdatedAt: normalizeIso(output.sourceUpdatedAt) ?? new Date().toISOString(),
-    rawMemory: String(output.rawMemory ?? "").trim(),
-    rolloutSummary: String(output.rolloutSummary ?? "").trim(),
-    rolloutSlug: sanitizeSlug(output.rolloutSlug ?? threadId),
-    cwd: output.cwd ? path.resolve(output.cwd) : "",
-    gitBranch: output.gitBranch ?? undefined,
-    generatedAt: normalizeIso(output.generatedAt) ?? new Date().toISOString(),
-    memoryMode: output.memoryMode ?? "enabled",
-    usageCount: output.usageCount ?? 0,
-    lastUsage: output.lastUsage,
-  };
-  writeFileSync(stage1File(paths.stage1, threadId), `${JSON.stringify(record, null, 2)}\n`, "utf8");
-  return record;
+  return memoryStage1OutputPath().upsertStage1OutputWithoutEnsure(root, output);
 }
 
 function stage1Metadata(output) {
-  return {
-    threadId: output.threadId,
-    sourcePath: output.sourcePath,
-    sourceUpdatedAt: output.sourceUpdatedAt,
-    rolloutSlug: output.rolloutSlug,
-    cwd: output.cwd,
-    gitBranch: output.gitBranch,
-    generatedAt: output.generatedAt,
-    memoryMode: output.memoryMode ?? "enabled",
-    usageCount: output.usageCount ?? 0,
-    lastUsage: output.lastUsage,
-  };
+  return memoryStage1OutputPath().stage1Metadata(output);
 }
 
 function syncStateFromStage1Files(root, state) {
-  const metadata = listStage1Outputs(root).map((output) => stage1Metadata(output));
-  const runtime = memoryState(root);
-  runtime.write(state);
-  return runtime.syncStage1OutputMetadata(metadata);
+  return memoryStage1OutputPath().syncStateFromStage1Files(root, state);
 }
 
 function updateStage1Job(root, threadId, ownershipToken, patch) {
@@ -670,13 +592,11 @@ function updateStage1Job(root, threadId, ownershipToken, patch) {
 }
 
 function stage1File(stage1Dir, threadId) {
-  return path.join(stage1Dir, `${sanitizeId(threadId)}.json`);
+  return memoryStage1OutputPath().stage1File(stage1Dir, threadId);
 }
 
 function rolloutSummaryFileName(output) {
-  const stamp = compactTimestamp(output.sourceUpdatedAt ?? output.generatedAt);
-  const slug = sanitizeSlug(output.rolloutSlug ?? output.rolloutSummary ?? output.threadId).slice(0, 70);
-  return `${stamp}-${sanitizeId(output.threadId).slice(0, 8)}${slug ? `-${slug}` : ""}.md`;
+  return memoryStage1OutputPath().rolloutSummaryFileName(output);
 }
 
 function sanitizeId(value) {
@@ -685,24 +605,6 @@ function sanitizeId(value) {
     .replace(/[^a-zA-Z0-9_.-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 120);
-}
-
-function sanitizeSlug(value) {
-  return String(value ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 80);
-}
-
-function compactTimestamp(value) {
-  const date = normalizeIso(value) ?? new Date().toISOString();
-  return date.replace(/:/g, "-").replace(/\.\d{3}Z$/, "Z");
-}
-
-function normalizeIso(value) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
 function safeReadDir(dir) {
@@ -718,14 +620,6 @@ function readText(file) {
     return readFileSync(file, "utf8");
   } catch {
     return "";
-  }
-}
-
-function readJsonFile(file) {
-  try {
-    return JSON.parse(readText(file));
-  } catch {
-    return undefined;
   }
 }
 
