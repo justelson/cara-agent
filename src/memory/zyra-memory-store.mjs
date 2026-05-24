@@ -7,7 +7,6 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { spawnSync } from "node:child_process";
 import path from "node:path";
 import {
   createEmptyMemoryState,
@@ -23,8 +22,6 @@ import {
   redactSecrets,
   renderConsolidationInstructions,
   renderPhase2WorkerPrompt,
-  renderRawMemories,
-  renderRolloutSummary,
   renderSessionForMemory,
   renderStage1WorkerPrompt,
 } from "./zyra-memory-prompts.mjs";
@@ -32,6 +29,7 @@ import {
   createMemoryReadPath,
   renderSkillsForPrompt,
 } from "./zyra-memory-read.mjs";
+import { createMemoryWorkspacePath } from "./zyra-memory-workspace.mjs";
 
 export { STATE_VERSION } from "./zyra-memory-state.mjs";
 
@@ -194,6 +192,33 @@ function memoryReadPath() {
     stage1Metadata,
     effectiveStage1MemoryMode,
     normalizeStoredMemoryMode,
+  });
+}
+
+function memoryWorkspacePath() {
+  return createMemoryWorkspacePath({
+    ensureMemoryWorkspace,
+    ensureBareMemoryWorkspace,
+    getMemoryPaths,
+    readMemoryState,
+    writeMemoryState,
+    createMemoryResetState,
+    memoryState,
+    listStage1Outputs,
+    stage1File,
+    rolloutSummaryFileName,
+    syncStateFromStage1Files,
+    defaultSummary: DEFAULT_SUMMARY,
+    defaultHandbook: DEFAULT_HANDBOOK,
+    memoryWorkspaceGitignore: MEMORY_WORKSPACE_GITIGNORE,
+    adHocInstructions: AD_HOC_INSTRUCTIONS,
+    legacyLayerFiles: LEGACY_LAYER_FILES,
+    workspaceDiffFile: WORKSPACE_DIFF_FILE,
+    maxWorkspaceDiffBytes: MAX_WORKSPACE_DIFF_BYTES,
+    defaultPhase2LeaseSeconds: DEFAULT_PHASE2_LEASE_SECONDS,
+    defaultPhase2CooldownSeconds: DEFAULT_PHASE2_COOLDOWN_SECONDS,
+    defaultRetryRemaining: DEFAULT_RETRY_REMAINING,
+    defaultRetryDelaySeconds: DEFAULT_RETRY_DELAY_SECONDS,
   });
 }
 
@@ -414,150 +439,47 @@ export function markStage1JobFailed(root, claim, error, options = {}) {
 }
 
 export function claimGlobalPhase2Job(root, options = {}) {
-  ensureMemoryWorkspace(root);
-  const inputWatermark = phase2InputWatermark(root);
-  return memoryState(root).claimGlobalPhase2Job(inputWatermark, {
-    ...options,
-    cooldownSeconds: options.cooldownSeconds ?? DEFAULT_PHASE2_COOLDOWN_SECONDS,
-    leaseSeconds: options.leaseSeconds ?? DEFAULT_PHASE2_LEASE_SECONDS,
-    retryRemaining: DEFAULT_RETRY_REMAINING,
-  });
+  return memoryWorkspacePath().claimGlobalPhase2Job(root, options);
 }
 
-export function markGlobalPhase2JobSucceeded(root, claim, selectedOutputs = listStage1Outputs(root, { enabledOnly: true })) {
-  const outputs = rebuildPhase2Inputs(root);
-  const selected = (selectedOutputs.length ? selectedOutputs : outputs).map((item) => item.threadId);
-  return memoryState(root).markGlobalPhase2JobSucceeded(claim, selected, claim.inputWatermark ?? phase2InputWatermark(root));
+export function markGlobalPhase2JobSucceeded(root, claim, selectedOutputs) {
+  return memoryWorkspacePath().markGlobalPhase2JobSucceeded(root, claim, selectedOutputs);
 }
 
 export function markGlobalPhase2JobFailed(root, claim, error, options = {}) {
-  return memoryState(root).markGlobalPhase2JobFailed(claim, error, {
-    ...options,
-    retryDelaySeconds: options.retryDelaySeconds ?? DEFAULT_RETRY_DELAY_SECONDS,
-  });
+  return memoryWorkspacePath().markGlobalPhase2JobFailed(root, claim, error, options);
 }
 
 export function prepareMemoryWorkspace(root) {
-  ensureMemoryWorkspace(root);
-  const paths = getMemoryPaths(root);
-  removeMemoryWorkspaceDiff(root);
-  ensureGitBaselineRepository(paths.root);
-  return paths.root;
+  return memoryWorkspacePath().prepareMemoryWorkspace(root);
 }
 
 export function preparePhase2WorkspaceForWorker(root, options = {}) {
-  prepareMemoryWorkspace(root);
-  const selectedOutputs = rebuildPhase2Inputs(root, options);
-  const diff = memoryWorkspaceDiff(root);
-  const workspaceDiffPath = diff.hasChanges
-    ? writeMemoryWorkspaceDiff(root, diff)
-    : getMemoryPaths(root).workspaceDiff;
-  return {
-    selectedOutputs,
-    diff,
-    workspaceDiffPath,
-  };
+  return memoryWorkspacePath().preparePhase2WorkspaceForWorker(root, options);
 }
 
 export function memoryWorkspaceDiff(root) {
-  const paths = getMemoryPaths(root);
-  removeMemoryWorkspaceDiff(root);
-  ensureGitBaselineRepository(paths.root);
-  runGit(paths.root, ["add", "-N", "."], { allowFailure: true });
-  const status = runGit(paths.root, ["status", "--porcelain", "--untracked-files=all", "--", "."]).stdout;
-  const unifiedDiff = runGit(paths.root, ["diff", "--no-ext-diff", "--binary", "--", "."]).stdout;
-  const changes = parseGitStatus(status).filter((change) => change.path !== WORKSPACE_DIFF_FILE);
-  return {
-    hasChanges: changes.length > 0,
-    changes,
-    unifiedDiff,
-  };
+  return memoryWorkspacePath().memoryWorkspaceDiff(root);
 }
 
 export function writeMemoryWorkspaceDiff(root, diff) {
-  const paths = getMemoryPaths(root);
-  writeFileSync(paths.workspaceDiff, renderMemoryWorkspaceDiff(diff), "utf8");
-  return paths.workspaceDiff;
+  return memoryWorkspacePath().writeMemoryWorkspaceDiff(root, diff);
 }
 
 export function resetMemoryWorkspaceBaseline(root) {
-  const paths = getMemoryPaths(root);
-  removeMemoryWorkspaceDiff(root);
-  ensureGitBaselineRepository(paths.root);
-  return commitMemoryBaseline(paths.root, "memory baseline");
+  return memoryWorkspacePath().resetMemoryWorkspaceBaseline(root);
 }
 
 export function resetMemoryWorkspace(root, options = {}) {
-  ensureMemoryWorkspace(root);
-  const paths = getMemoryPaths(root);
-  const previousState = readMemoryState(root);
-  const preserveAdHoc = options.preserveAdHoc !== false;
-  const cleared = [];
-
-  for (const dir of [paths.stage1, paths.stage1Inputs, paths.rolloutSummaries, paths.skills]) {
-    resetDirectoryInside(paths.root, dir, "memory reset");
-    cleared.push(path.relative(paths.root, dir).replaceAll("\\", "/"));
-  }
-
-  if (!preserveAdHoc) {
-    resetDirectoryInside(paths.root, paths.adHocNotes, "memory reset ad-hoc notes");
-    cleared.push(path.relative(paths.root, paths.adHocNotes).replaceAll("\\", "/"));
-  }
-
-  for (const file of LEGACY_LAYER_FILES) {
-    const target = path.join(paths.root, file);
-    assertInsidePath(paths.root, target, "legacy memory reset");
-    rmSync(target, { force: true });
-  }
-
-  writeFileSync(paths.summary, DEFAULT_SUMMARY, "utf8");
-  writeFileSync(paths.handbook, DEFAULT_HANDBOOK, "utf8");
-  writeFileSync(paths.rawMemories, "# Raw Memories\n\nNo raw memories yet.\n", "utf8");
-  writeFileSync(paths.workspaceGitignore, MEMORY_WORKSPACE_GITIGNORE, "utf8");
-  writeFileSync(paths.adHocInstructions, AD_HOC_INSTRUCTIONS, "utf8");
-  removeMemoryWorkspaceDiff(root);
-
-  const nextState = createMemoryResetState(previousState);
-  writeMemoryState(root, nextState);
-
-  rebuildPhase2Inputs(root);
-  const baselineCommitted = resetMemoryWorkspaceBaseline(root);
-  return {
-    memoryRoot: paths.root,
-    cleared,
-    preserveAdHoc,
-    preservedThreadModes: Object.keys(nextState.threadMemoryModes).length,
-    baselineCommitted,
-  };
+  return memoryWorkspacePath().resetMemoryWorkspace(root, options);
 }
 
 export function removeMemoryWorkspaceDiff(root) {
-  rmSync(getMemoryPaths(root).workspaceDiff, { force: true });
+  return memoryWorkspacePath().removeMemoryWorkspaceDiff(root);
 }
 
 export function pruneStage1OutputsForRetention(root, options = {}) {
-  ensureBareMemoryWorkspace(root);
-  const maxUnusedDays = Math.max(1, Number(options.maxUnusedDays ?? 60));
-  const limit = clamp(options.limit ?? 100, 1, 1000);
-  const cutoff = Date.now() - maxUnusedDays * 24 * 60 * 60 * 1000;
-  const state = readMemoryState(root);
-  const selected = new Set(state.phase2.selectedThreadIds ?? []);
-  const paths = getMemoryPaths(root);
-  const pruned = [];
-  for (const output of listStage1Outputs(root)) {
-    if (pruned.length >= limit) break;
-    if (selected.has(output.threadId)) continue;
-    const timestamp = Date.parse(output.lastUsage ?? output.sourceUpdatedAt ?? output.generatedAt ?? 0);
-    if (!Number.isFinite(timestamp) || timestamp > cutoff) continue;
-    rmSync(stage1File(paths.stage1, output.threadId), { force: true });
-    delete state.stage1Outputs[output.threadId];
-    pruned.push(output.threadId);
-  }
-  if (pruned.length) {
-    writeMemoryState(root, state);
-    rebuildPhase2Inputs(root);
-  }
-  return pruned;
+  return memoryWorkspacePath().pruneStage1OutputsForRetention(root, options);
 }
 
 export function runMemoryStartup(root, runtime, options = {}) {
@@ -589,31 +511,7 @@ export function runMemoryStartup(root, runtime, options = {}) {
 }
 
 export function rebuildPhase2Inputs(root, options = {}) {
-  ensureBareMemoryWorkspace(root);
-  const paths = getMemoryPaths(root);
-  mkdirSync(paths.rolloutSummaries, { recursive: true });
-  writeMemoryState(root, syncStateFromStage1Files(root, readMemoryState(root)));
-  const outputs = listStage1Outputs(root, { enabledOnly: true, limit: options.limit ?? 80 });
-  const keep = new Set();
-
-  for (const output of outputs) {
-    const fileName = rolloutSummaryFileName(output);
-    keep.add(fileName);
-    writeFileSync(path.join(paths.rolloutSummaries, fileName), renderRolloutSummary(output), "utf8");
-  }
-
-  for (const file of safeReadDir(paths.rolloutSummaries)) {
-    if (file.endsWith(".md") && !keep.has(file)) {
-      rmSync(path.join(paths.rolloutSummaries, file), { force: true });
-    }
-  }
-
-  writeFileSync(paths.rawMemories, renderRawMemories(outputs, { fileNameForOutput: rolloutSummaryFileName }), "utf8");
-  const state = readMemoryState(root);
-  state.phase2.selectedThreadIds = outputs.map((item) => item.threadId);
-  state.phase2.lastInputSyncAt = new Date().toISOString();
-  writeMemoryState(root, state);
-  return outputs;
+  return memoryWorkspacePath().rebuildPhase2Inputs(root, options);
 }
 
 export function buildMemoryPrompt(root, options = {}) {
@@ -1057,17 +955,6 @@ function normalizeSkillFilePath(value) {
   return relative;
 }
 
-function resetDirectoryInside(parent, target, label) {
-  const parentPath = path.resolve(parent);
-  const targetPath = path.resolve(target);
-  if (targetPath === parentPath) {
-    throw new Error(`Refusing ${label} at memory root: ${target}`);
-  }
-  assertInsidePath(parentPath, targetPath, label);
-  rmSync(targetPath, { recursive: true, force: true });
-  mkdirSync(targetPath, { recursive: true });
-}
-
 function assertInsidePath(parent, target, label) {
   const parentPath = path.resolve(parent);
   const targetPath = path.resolve(target);
@@ -1075,129 +962,6 @@ function assertInsidePath(parent, target, label) {
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error(`Refusing ${label} outside expected parent: ${target}`);
   }
-}
-
-function ensureGitBaselineRepository(memoryRoot) {
-  mkdirSync(memoryRoot, { recursive: true });
-  if (!existsSync(path.join(memoryRoot, ".git"))) {
-    runGit(memoryRoot, ["init", "-q"]);
-  } else {
-    const probe = runGit(memoryRoot, ["rev-parse", "--is-inside-work-tree"], { allowFailure: true });
-    if (probe.status !== 0 || probe.stdout.trim() !== "true") {
-      throw new Error(`Memory workspace git metadata is not usable: ${memoryRoot}`);
-    }
-  }
-  if (!hasGitHead(memoryRoot)) {
-    commitMemoryBaseline(memoryRoot, "initial memory baseline");
-  }
-}
-
-function hasGitHead(memoryRoot) {
-  return runGit(memoryRoot, ["rev-parse", "--verify", "HEAD"], { allowFailure: true }).status === 0;
-}
-
-function commitMemoryBaseline(memoryRoot, message) {
-  runGit(memoryRoot, ["add", "-A", "."]);
-  const status = runGit(memoryRoot, ["status", "--porcelain", "--untracked-files=all", "--", "."]).stdout.trim();
-  if (!status) return false;
-  const result = runGit(memoryRoot, [
-    "-c",
-    "user.name=Zyra Memory",
-    "-c",
-    "user.email=zyra-memory@local",
-    "commit",
-    "-q",
-    "--no-gpg-sign",
-    "-m",
-    message,
-  ], { allowFailure: true });
-  if (result.status === 0) return true;
-  if (/nothing to commit|no changes added/i.test(`${result.stdout}\n${result.stderr}`)) return false;
-  throw new Error(`git commit failed in memory workspace: ${result.stderr || result.stdout}`);
-}
-
-function runGit(cwd, args, options = {}) {
-  const result = spawnSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  const status = result.status ?? (result.error ? 1 : 0);
-  const output = {
-    status,
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? result.error?.message ?? "",
-  };
-  if (!options.allowFailure && status !== 0) {
-    throw new Error(`git ${args.join(" ")} failed in ${cwd}: ${output.stderr || output.stdout}`);
-  }
-  return output;
-}
-
-function parseGitStatus(status) {
-  return String(status ?? "")
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter(Boolean)
-    .map((line) => {
-      const code = line.slice(0, 2);
-      const rawPath = line.slice(3).trim();
-      const renamePath = rawPath.includes(" -> ") ? rawPath.split(" -> ").at(-1) : rawPath;
-      return {
-        status: gitStatusLabel(code),
-        code,
-        path: renamePath.replaceAll("\\", "/"),
-      };
-    });
-}
-
-function gitStatusLabel(code) {
-  if (code.includes("D")) return "deleted";
-  if (code.includes("R")) return "renamed";
-  if (code.includes("A") || code === "??") return "added";
-  if (code.includes("M")) return "modified";
-  return "changed";
-}
-
-function renderMemoryWorkspaceDiff(diff) {
-  const lines = [
-    "# Memory Workspace Diff",
-    "",
-    "Generated by Zyra before Phase 2 memory consolidation. Read this file first and do not edit it.",
-    "",
-    "## Status",
-  ];
-  if (!diff?.hasChanges) {
-    lines.push("- none");
-    return `${lines.join("\n")}\n`;
-  }
-  for (const change of diff.changes ?? []) {
-    lines.push(`- ${change.status} ${change.path}`);
-  }
-  lines.push("", "## Diff", "", "```diff");
-  lines.push(boundedWorkspaceDiff(diff.unifiedDiff ?? ""));
-  lines.push("```", "");
-  return lines.join("\n");
-}
-
-function boundedWorkspaceDiff(diff) {
-  const text = String(diff ?? "");
-  if (text.length <= MAX_WORKSPACE_DIFF_BYTES) return text.endsWith("\n") ? text.trimEnd() : text;
-  const boundary = previousCharBoundary(text, MAX_WORKSPACE_DIFF_BYTES);
-  return `${text.slice(0, boundary)}\n\n[workspace diff truncated at ${MAX_WORKSPACE_DIFF_BYTES} bytes]`;
-}
-
-function previousCharBoundary(value, maxBytes) {
-  if (Buffer.byteLength(value, "utf8") <= maxBytes) return value.length;
-  let bytes = 0;
-  let index = 0;
-  for (const char of value) {
-    const nextBytes = bytes + Buffer.byteLength(char, "utf8");
-    if (nextBytes > maxBytes) break;
-    bytes = nextBytes;
-    index += char.length;
-  }
-  return Math.max(0, index);
 }
 
 function updateStage1Job(root, threadId, ownershipToken, patch) {
@@ -1210,13 +974,6 @@ function getStage1JobForToken(root, threadId, ownershipToken) {
 
 function enqueuePhase2Job(root, inputUpdatedAt) {
   memoryState(root).enqueueGlobalPhase2(inputUpdatedAt);
-}
-
-function phase2InputWatermark(root) {
-  return listStage1Outputs(root, { enabledOnly: true }).reduce((max, output) => {
-    const updatedAt = Date.parse(output.sourceUpdatedAt ?? output.generatedAt ?? 0) || 0;
-    return Math.max(max, updatedAt);
-  }, 0);
 }
 
 function stage1File(stage1Dir, threadId) {
