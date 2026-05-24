@@ -71,6 +71,35 @@ function runWorkspaceBootstrapRegression() {
   });
 }
 
+function runMemoryStateRuntimeRegression() {
+  withTempRoot((root) => {
+    const memoryRoot = path.join(root, ".zyra", "memory");
+    mkdirSync(memoryRoot, { recursive: true });
+    writeFileSync(path.join(memoryRoot, "state.json"), `${JSON.stringify({
+      version: 1,
+      createdAt: "2026-05-24T00:00:00.000Z",
+      jobs: {
+        memory_stage1: {
+          kind: "memory_stage1",
+          jobKey: "legacy-thread",
+          status: "running",
+        },
+        memory_consolidate_global: {
+          kind: "memory_consolidate_global",
+          jobKey: "global",
+          status: "queued",
+        },
+      },
+    }, null, 2)}\n`, "utf8");
+
+    const state = ensureZyraMemory(root);
+    assert.equal(state.createdAt, "2026-05-24T00:00:00.000Z");
+    assert.equal(state.jobs.memory_stage1["legacy-thread"].status, "running");
+    assert.equal(state.jobs.memory_consolidate_global.global.status, "queued");
+    assert.deepEqual(state.threadMemoryModes, {});
+  });
+}
+
 function runStageOutputRetrievalRegression() {
   withTempRoot((root) => {
     ensureZyraMemory(root);
@@ -804,6 +833,7 @@ function runPhase2LockAndRetentionRegression() {
 }
 
 runWorkspaceBootstrapRegression();
+runMemoryStateRuntimeRegression();
 runStageOutputRetrievalRegression();
 runConsolidationPromptRegression();
 runMemoryWorkerJsonRegression();

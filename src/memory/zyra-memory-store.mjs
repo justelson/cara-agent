@@ -10,10 +10,23 @@ import {
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import {
+  GLOBAL_PHASE2_JOB_KEY,
+  JOB_KIND_PHASE2,
+  JOB_KIND_STAGE1,
+  createEmptyMemoryState,
+  createMemoryResetState,
+  normalizeMemoryMode,
+  normalizeMemoryState,
+  normalizeStoredMemoryMode,
+  readMemoryStateFile,
+  writeMemoryStateFile,
+} from "./zyra-memory-state.mjs";
+
+export { STATE_VERSION } from "./zyra-memory-state.mjs";
 
 export const MEMORY_DIR = ".zyra/memory";
 export const LEGACY_MEMORY_DIR = ".cara/memory";
-export const STATE_VERSION = 1;
 
 const STATE_FILE = "state.json";
 const SUMMARY_FILE = "memory_summary.md";
@@ -28,17 +41,12 @@ const ROLLOUT_SUMMARIES_DIR = "rollout_summaries";
 const EXTENSIONS_DIR = "extensions";
 const AD_HOC_DIR = path.join(EXTENSIONS_DIR, "ad_hoc");
 const AD_HOC_NOTES_DIR = path.join(AD_HOC_DIR, "notes");
-const JOB_KIND_STAGE1 = "memory_stage1";
-const JOB_KIND_PHASE2 = "memory_consolidate_global";
-const GLOBAL_PHASE2_JOB_KEY = "global";
 const DEFAULT_STAGE1_LEASE_SECONDS = 60 * 60;
 const DEFAULT_PHASE2_LEASE_SECONDS = 60 * 60;
 const DEFAULT_PHASE2_COOLDOWN_SECONDS = 6 * 60 * 60;
 const DEFAULT_RETRY_REMAINING = 3;
 const DEFAULT_RETRY_DELAY_SECONDS = 15 * 60;
 const MAX_WORKSPACE_DIFF_BYTES = 4 * 1024 * 1024;
-const MEMORY_MODES = new Set(["enabled", "disabled", "polluted"]);
-
 const LEGACY_LAYER_FILES = [
   "cara-profile.md",
   "interaction-rhythm.md",
@@ -145,33 +153,17 @@ export function ensureMemoryWorkspace(root) {
 
   let state = readMemoryState(root);
   state = migrateLegacyLayerFiles(root, state);
-  state = normalizeState(state);
   writeMemoryState(root, state);
   rebuildPhase2Inputs(root);
   return readMemoryState(root);
 }
 
 export function readMemoryState(root) {
-  const paths = getMemoryPaths(root);
-  if (!existsSync(paths.state)) {
-    return createEmptyState();
-  }
-  try {
-    return normalizeState(JSON.parse(readFileSync(paths.state, "utf8")));
-  } catch {
-    const brokenPath = `${paths.state}.broken-${Date.now()}`;
-    writeFileSync(brokenPath, readFileSync(paths.state, "utf8"), "utf8");
-    return createEmptyState();
-  }
+  return readMemoryStateFile(getMemoryPaths(root).state);
 }
 
 export function writeMemoryState(root, state) {
-  const paths = getMemoryPaths(root);
-  mkdirSync(paths.root, { recursive: true });
-  const normalized = normalizeState(state);
-  normalized.updatedAt = new Date().toISOString();
-  writeFileSync(paths.state, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
-  return normalized;
+  return writeMemoryStateFile(getMemoryPaths(root).state, state);
 }
 
 export function upsertStage1Output(root, output) {
@@ -599,10 +591,7 @@ export function resetMemoryWorkspace(root, options = {}) {
   writeFileSync(paths.adHocInstructions, AD_HOC_INSTRUCTIONS, "utf8");
   removeMemoryWorkspaceDiff(root);
 
-  const nextState = createEmptyState();
-  nextState.createdAt = previousState.createdAt ?? nextState.createdAt;
-  nextState.threadMemoryModes = { ...(previousState.threadMemoryModes ?? {}) };
-  nextState.migrations = { ...(previousState.migrations ?? {}) };
+  const nextState = createMemoryResetState(previousState);
   writeMemoryState(root, nextState);
 
   rebuildPhase2Inputs(root);
@@ -1264,58 +1253,6 @@ export function formatMemorySources(sources) {
   return lines;
 }
 
-function createEmptyState() {
-  const now = new Date().toISOString();
-  return {
-    version: STATE_VERSION,
-    createdAt: now,
-    updatedAt: now,
-    stage1Outputs: {},
-    jobs: {},
-    phase2: {
-      selectedThreadIds: [],
-      lastInputSyncAt: undefined,
-      lastSuccessAt: undefined,
-    },
-    migrations: {},
-  };
-}
-
-function normalizeState(value) {
-  const state = value && typeof value === "object" ? value : createEmptyState();
-  state.version = STATE_VERSION;
-  state.createdAt = state.createdAt ?? new Date().toISOString();
-  state.updatedAt = state.updatedAt ?? state.createdAt;
-  state.stage1Outputs = state.stage1Outputs && typeof state.stage1Outputs === "object" ? state.stage1Outputs : {};
-  state.jobs = normalizeJobs(state.jobs);
-  state.phase2 = state.phase2 && typeof state.phase2 === "object" ? state.phase2 : {};
-  state.phase2.selectedThreadIds = Array.isArray(state.phase2.selectedThreadIds) ? state.phase2.selectedThreadIds : [];
-  state.migrations = state.migrations && typeof state.migrations === "object" ? state.migrations : {};
-  state.threadMemoryModes = state.threadMemoryModes && typeof state.threadMemoryModes === "object" ? state.threadMemoryModes : {};
-  return state;
-}
-
-function normalizeJobs(jobs) {
-  const normalized = jobs && typeof jobs === "object" ? { ...jobs } : {};
-  if (normalized[JOB_KIND_STAGE1]?.jobKey) {
-    normalized[JOB_KIND_STAGE1] = {
-      [normalized[JOB_KIND_STAGE1].jobKey]: normalized[JOB_KIND_STAGE1],
-    };
-  }
-  if (!normalized[JOB_KIND_STAGE1] || typeof normalized[JOB_KIND_STAGE1] !== "object") {
-    normalized[JOB_KIND_STAGE1] = {};
-  }
-  if (normalized[JOB_KIND_PHASE2]?.kind === JOB_KIND_PHASE2) {
-    normalized[JOB_KIND_PHASE2] = {
-      [GLOBAL_PHASE2_JOB_KEY]: normalized[JOB_KIND_PHASE2],
-    };
-  }
-  if (!normalized[JOB_KIND_PHASE2] || typeof normalized[JOB_KIND_PHASE2] !== "object") {
-    normalized[JOB_KIND_PHASE2] = {};
-  }
-  return normalized;
-}
-
 function ensureBareMemoryWorkspace(root) {
   const paths = getMemoryPaths(root);
   for (const dir of [paths.root, paths.stage1, paths.stage1Inputs, paths.rolloutSummaries]) {
@@ -1324,7 +1261,7 @@ function ensureBareMemoryWorkspace(root) {
   writeIfMissing(paths.summary, DEFAULT_SUMMARY);
   writeIfMissing(paths.handbook, DEFAULT_HANDBOOK);
   writeIfMissing(paths.rawMemories, "# Raw Memories\n\nNo raw memories yet.\n");
-  writeIfMissing(paths.state, `${JSON.stringify(createEmptyState(), null, 2)}\n`);
+  writeIfMissing(paths.state, `${JSON.stringify(createEmptyMemoryState(), null, 2)}\n`);
 }
 
 function migrateLegacyMemoryDir(root) {
@@ -1425,7 +1362,7 @@ function stage1Metadata(output) {
 }
 
 function syncStateFromStage1Files(root, state) {
-  const next = normalizeState(state);
+  const next = normalizeMemoryState(state);
   next.stage1Outputs = {};
   for (const output of listStage1Outputs(root)) {
     next.stage1Outputs[output.threadId] = stage1Metadata(output);
@@ -1516,18 +1453,6 @@ function normalizeSkillFilePath(value) {
     throw new Error(`Invalid memory skill support file path: ${value}`);
   }
   return relative;
-}
-
-function normalizeMemoryMode(value) {
-  const mode = String(value ?? "").trim().toLowerCase();
-  if (!MEMORY_MODES.has(mode)) {
-    throw new Error(`Invalid memory mode: ${value}`);
-  }
-  return mode;
-}
-
-function normalizeStoredMemoryMode(value) {
-  return MEMORY_MODES.has(value) ? value : "enabled";
 }
 
 function effectiveStage1MemoryMode(state, output) {
