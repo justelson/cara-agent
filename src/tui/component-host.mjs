@@ -187,14 +187,16 @@ export class ZyraComponentHost {
     if (this.shouldRenderFixedOnly(options, width, resized)) {
       const contentLines = this.renderContentLines(width);
       const fixedLines = this.renderFixedLines(width);
+      const cursorTarget = this.cursorTarget(contentLines, width);
       const fixedOutput = fixedLines.join("\n");
       if (fixedOutput === this.lastFixedOutput && contentLines.length === this.renderedContentLines.length) return;
-      this.diffRenderFixed(contentLines, fixedLines);
+      this.diffRenderFixed(contentLines, fixedLines, { cursorTarget });
       this.rememberRenderedParts(contentLines, fixedLines, width, { fixedOutput });
       return;
     }
 
     const { contentLines, fixedLines, lines } = this.renderParts(width);
+    const cursorTarget = this.cursorTarget(contentLines, width);
     const contentOutput = contentLines.join("\n");
     const fixedOutput = fixedLines.join("\n");
     const output = lines.join("\n");
@@ -208,8 +210,8 @@ export class ZyraComponentHost {
 
     if (!resized && contentOutput === this.lastContentOutput && fixedOutput === this.lastFixedOutput) return;
 
-    if (resized || options.clear) this.fullRender(lines, { clear: true });
-    else this.diffRender(lines);
+    if (resized || options.clear) this.fullRender(lines, { clear: true, cursorTarget });
+    else this.diffRender(lines, { cursorTarget });
     this.rememberRenderedParts(contentLines, fixedLines, width, {
       contentOutput,
       fixedOutput,
@@ -260,6 +262,15 @@ export class ZyraComponentHost {
     return renderLinesWithinWidth(lines, width);
   }
 
+  cursorTarget(contentLines = [], width = this.width()) {
+    const cursor = this.inputComponent?.cursorPosition?.(width);
+    if (!cursor || !Number.isFinite(cursor.row) || !Number.isFinite(cursor.col)) return null;
+    return {
+      row: Math.max(0, contentLines.length + Number(cursor.row)),
+      col: Math.max(0, Math.min(Math.max(0, Number(width) || 0), Number(cursor.col))),
+    };
+  }
+
   scrollBy(rows) {
     void rows;
     return false;
@@ -282,7 +293,9 @@ export class ZyraComponentHost {
     if (options.clear) this.output.write(`${clearScreen}\x1b[3J`);
     const output = lines.join("\n");
     if (output) this.output.write(output);
-    this.endBatch();
+    const cursorBuffer = renderCursorMovement(lines.length - 1, options.cursorTarget);
+    if (cursorBuffer) this.output.write(cursorBuffer);
+    this.endBatch(Boolean(options.cursorTarget));
   }
 
   shouldRenderFixedOnly(options = {}, width = this.width(), resized = false) {
@@ -296,9 +309,9 @@ export class ZyraComponentHost {
     );
   }
 
-  diffRender(lines) {
+  diffRender(lines, options = {}) {
     if (this.renderedLines.length === 0) {
-      this.fullRender(lines, { clear: false });
+      this.fullRender(lines, { clear: false, cursorTarget: options.cursorTarget });
       return;
     }
 
@@ -317,7 +330,7 @@ export class ZyraComponentHost {
     if (firstChanged < viewportTop) {
       const visibleFirstChanged = firstChangedLine(previous, lines, viewportTop);
       if (visibleFirstChanged === -1) return;
-      this.diffRenderTail(visibleFirstChanged, lines.slice(visibleFirstChanged), previous.length, lines.length);
+      this.diffRenderTail(visibleFirstChanged, lines.slice(visibleFirstChanged), previous.length, lines.length, options);
       return;
     }
 
@@ -331,15 +344,16 @@ export class ZyraComponentHost {
       buffer += `\x1b[2K${lines[index]}`;
     }
     if (previous.length > lines.length) buffer += "\x1b[J";
+    buffer += renderCursorMovement(lines.length - 1, options.cursorTarget);
 
     this.beginBatch();
     this.output.write(buffer);
-    this.endBatch();
+    this.endBatch(Boolean(options.cursorTarget));
   }
 
-  diffRenderFixed(contentLines = [], fixedLines = []) {
+  diffRenderFixed(contentLines = [], fixedLines = [], options = {}) {
     if (this.renderedLines.length === 0 || this.renderedContentLines.length !== contentLines.length) {
-      this.fullRender([...contentLines, ...fixedLines], { clear: false });
+      this.fullRender([...contentLines, ...fixedLines], { clear: false, cursorTarget: options.cursorTarget });
       return;
     }
 
@@ -359,14 +373,14 @@ export class ZyraComponentHost {
     const globalFirstChanged = contentLines.length + firstChanged;
     const viewportTop = Math.max(0, previousTotal - this.height());
     if (globalFirstChanged < viewportTop) {
-      this.fullRender([...contentLines, ...fixedLines], { clear: true });
+      this.fullRender([...contentLines, ...fixedLines], { clear: true, cursorTarget: options.cursorTarget });
       return;
     }
 
-    this.diffRenderTail(globalFirstChanged, fixedLines.slice(firstChanged), previousTotal, nextTotal);
+    this.diffRenderTail(globalFirstChanged, fixedLines.slice(firstChanged), previousTotal, nextTotal, options);
   }
 
-  diffRenderTail(firstChanged, tailLines = [], previousTotal, nextTotal) {
+  diffRenderTail(firstChanged, tailLines = [], previousTotal, nextTotal, options = {}) {
     const rowsUp = Math.max(0, previousTotal - firstChanged - 1);
     let buffer = "";
     if (rowsUp > 0) buffer += `\x1b[${rowsUp}A`;
@@ -377,10 +391,11 @@ export class ZyraComponentHost {
       buffer += `\x1b[2K${tailLines[index]}`;
     }
     if (previousTotal > nextTotal) buffer += "\x1b[J";
+    buffer += renderCursorMovement(firstChanged + tailLines.length - 1, options.cursorTarget);
 
     this.beginBatch();
     this.output.write(buffer);
-    this.endBatch();
+    this.endBatch(Boolean(options.cursorTarget));
   }
 
   rememberRenderedParts(contentLines = [], fixedLines = [], width = this.width(), options = {}) {
@@ -488,4 +503,18 @@ function firstChangedLine(previous = [], next = [], start = 0) {
     if ((previous[index] ?? "") !== (next[index] ?? "")) return index;
   }
   return -1;
+}
+
+function renderCursorMovement(endRow, cursorTarget) {
+  if (!cursorTarget) return "";
+  const fromRow = Math.max(0, Number(endRow) || 0);
+  const targetRow = Math.max(0, Number(cursorTarget.row) || 0);
+  const targetCol = Math.max(0, Number(cursorTarget.col) || 0);
+  const rowDelta = fromRow - targetRow;
+  let buffer = "";
+  if (rowDelta > 0) buffer += `\x1b[${rowDelta}A`;
+  if (rowDelta < 0) buffer += `\x1b[${Math.abs(rowDelta)}B`;
+  buffer += "\r";
+  if (targetCol > 0) buffer += `\x1b[${targetCol}C`;
+  return buffer;
 }

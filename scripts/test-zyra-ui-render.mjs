@@ -825,6 +825,33 @@ function runEditorWordWrapRegression() {
   assert.equal(lines.every((line) => line.length <= 22), true);
 }
 
+function runEditorUsesHardwareCursorRegression() {
+  const writes = [];
+  const fakeOutput = {
+    columns: 41,
+    rows: 10,
+    write(chunk) {
+      writes.push(String(chunk));
+      return true;
+    },
+    on() {},
+    off() {},
+  };
+  const editor = new EditorComponent({
+    suggestions: () => [],
+    theme: {},
+  });
+  editor.buffer = "hi";
+  const host = new ZyraComponentHost({ output: fakeOutput, autoRender: true });
+  host.setInteractive(true);
+  host.setInputComponent(editor);
+
+  const raw = writes.join("");
+  assert.equal(raw.includes("\x1b[7m \x1b[27m"), false, "editor should not render a fake block cursor");
+  assert.match(raw, /\x1b\[1A\r\x1b\[4C\x1b\[\?2026l\x1b\[\?25h/, "host should place and show the terminal hardware cursor at input text");
+  assert.deepEqual(editor.cursorPosition(40), { row: 1, col: 4 });
+}
+
 function runEditorSessionResetRegression() {
   const editor = new EditorComponent({
     suggestions: () => [],
@@ -1139,6 +1166,7 @@ runTranscriptScrollKeepsInputPinnedRegression();
 runEditorStatusGapRegression();
 runEditorBusySpacingRegression();
 runEditorWordWrapRegression();
+runEditorUsesHardwareCursorRegression();
 runEditorSessionResetRegression();
 runEditorImmediateSlashRegression();
 runThemeSelectorStartsOnActiveThemeRegression();

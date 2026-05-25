@@ -3,7 +3,6 @@ import { spawn } from "node:child_process";
 import { buildTerminalTheme } from "../../terminal-theme.mjs";
 import {
   bold,
-  fakeCursor,
   fgReset,
   inverse,
   normalIntensity,
@@ -119,8 +118,12 @@ export class EditorComponent {
 
     const prompt = `${this.theme.primary}>${fgReset} `;
     const displayText = displayTextFor(this.buffer, this.pastedBlocks);
-    const editorLines = renderEditorLines({ prompt, text: displayText, placeholder: this.placeholderText }, width, this.theme)
-      .map((line) => styleAttachmentLabels(line, this.theme, fgReset));
+    const editor = renderEditorLines({ prompt, text: displayText, placeholder: this.placeholderText }, width, this.theme);
+    this.cursor = {
+      row: lines.length + 1 + editor.cursor.row,
+      col: editor.cursor.col,
+    };
+    const editorLines = editor.lines.map((line) => styleAttachmentLabels(line, this.theme, fgReset));
     const rail = renderInputRail(width, this.theme);
     lines.push(rail);
     lines.push(...editorLines);
@@ -147,6 +150,11 @@ export class EditorComponent {
     const statusLine = this.options.statusLine?.(width, { activity: "" });
     if (statusLine) lines.push("", statusLine);
     return lines;
+  }
+
+  cursorPosition(width) {
+    if (!this.cursor) this.render(width);
+    return this.cursor ?? null;
   }
 
   async handleKeypress(str, key) {
@@ -536,9 +544,20 @@ function renderStarterRecommendationLine(item, width, theme = fallbackTheme) {
 function renderEditorLines({ prompt, text = "", placeholder = "message..." }, width, theme = fallbackTheme) {
   const promptWidth = visibleWidth(prompt);
   const rowWidth = Math.max(1, width - promptWidth);
-  if (!text) return [`${prompt}${fakeCursor}${theme.muted}${placeholder}${reset}`];
-  const rows = appendEditorCursor(wrapEditorInput(text, rowWidth), rowWidth);
-  return rows.map((row, index) => `${index === 0 ? prompt : " ".repeat(promptWidth)}${row}`);
+  if (!text) {
+    return {
+      lines: [`${prompt} ${theme.muted}${placeholder}${reset}`],
+      cursor: { row: 0, col: promptWidth },
+    };
+  }
+  const rows = wrapEditorInput(text, rowWidth);
+  return {
+    lines: rows.map((row, index) => `${index === 0 ? prompt : " ".repeat(promptWidth)}${row}`),
+    cursor: {
+      row: Math.max(0, rows.length - 1),
+      col: promptWidth + visibleWidth(rows.at(-1) ?? ""),
+    },
+  };
 }
 
 function renderInputRail(width, theme = fallbackTheme) {
@@ -583,18 +602,6 @@ function wrapEditorInput(text, width) {
     rows.push(row.trimEnd());
   }
   return rows;
-}
-
-function appendEditorCursor(rows, width) {
-  const max = Math.max(1, Number(width) || 1);
-  const output = rows.length ? [...rows] : [""];
-  const last = output.pop() ?? "";
-  if (visibleWidth(last) + visibleWidth(fakeCursor) > max) {
-    output.push(last, fakeCursor);
-  } else {
-    output.push(`${last}${fakeCursor}`);
-  }
-  return output;
 }
 
 function styleAttachmentLabels(text, theme = fallbackTheme, restore = fgReset) {
