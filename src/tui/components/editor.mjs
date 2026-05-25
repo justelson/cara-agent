@@ -572,12 +572,17 @@ function wrapEditorInput(text, width) {
     let row = "";
     for (const token of tokens) {
       if (/^\s+$/.test(token)) {
-        if (!row) continue;
-        if (visibleWidth(row) + visibleWidth(token) <= max) {
-          row += token;
-        } else {
-          rows.push(row.trimEnd());
-          row = "";
+        let spaces = token;
+        while (spaces) {
+          const available = max - visibleWidth(row);
+          if (available <= 0) {
+            rows.push(row);
+            row = "";
+            continue;
+          }
+          const chunk = spaces.slice(0, available);
+          row += chunk;
+          spaces = spaces.slice(chunk.length);
         }
         continue;
       }
@@ -585,7 +590,7 @@ function wrapEditorInput(text, width) {
       let word = token;
       while (visibleWidth(word) > max) {
         if (row) {
-          rows.push(row.trimEnd());
+          rows.push(row);
           row = "";
         }
         rows.push(word.slice(0, max));
@@ -593,13 +598,13 @@ function wrapEditorInput(text, width) {
       }
 
       if (visibleWidth(row) + visibleWidth(word) > max && row) {
-        rows.push(row.trimEnd());
+        rows.push(row);
         row = word;
       } else {
         row += word;
       }
     }
-    rows.push(row.trimEnd());
+    rows.push(row);
   }
   return rows;
 }

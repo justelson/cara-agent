@@ -820,9 +820,21 @@ function runEditorWordWrapRegression() {
   editor.buffer = "alpha beta gamma delta epsilon zeta";
 
   const lines = editor.render(22).map(stripAnsi);
-  assert.equal(lines[1], "> alpha beta gamma");
+  assert.equal(lines[1].trimEnd(), "> alpha beta gamma");
   assert.equal(lines[2].trim(), "delta epsilon zeta");
   assert.equal(lines.every((line) => line.length <= 22), true);
+}
+
+function runEditorSpaceKeyPreservesTrailingSpaceRegression() {
+  const editor = new EditorComponent({
+    suggestions: () => [],
+    theme: {},
+  });
+  editor.buffer = "hello ";
+
+  const lines = editor.render(30).map(stripAnsi);
+  assert.equal(lines[1], "> hello ", "typed trailing space should stay in the rendered input row");
+  assert.deepEqual(editor.cursorPosition(30), { row: 1, col: 8 }, "cursor should advance past a typed space");
 }
 
 function runEditorUsesHardwareCursorRegression() {
@@ -1198,6 +1210,7 @@ runTranscriptScrollKeepsInputPinnedRegression();
 runEditorStatusGapRegression();
 runEditorBusySpacingRegression();
 runEditorWordWrapRegression();
+runEditorSpaceKeyPreservesTrailingSpaceRegression();
 runEditorUsesHardwareCursorRegression();
 runFixedOnlyRenderReturnsFromHardwareCursorRegression();
 runEditorSessionResetRegression();
