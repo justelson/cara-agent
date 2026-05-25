@@ -852,6 +852,38 @@ function runEditorUsesHardwareCursorRegression() {
   assert.deepEqual(editor.cursorPosition(40), { row: 1, col: 4 });
 }
 
+function runFixedOnlyRenderReturnsFromHardwareCursorRegression() {
+  const writes = [];
+  const fakeOutput = {
+    columns: 41,
+    rows: 10,
+    write(chunk) {
+      writes.push(String(chunk));
+      return true;
+    },
+    on() {},
+    off() {},
+  };
+  const editor = new EditorComponent({
+    suggestions: () => [],
+    statusLine: () => "STATUS",
+    theme: {},
+  });
+  editor.buffer = "a";
+  const host = new ZyraComponentHost({ output: fakeOutput, autoRender: true });
+  host.setInteractive(true);
+  host.setInputComponent(editor);
+
+  const before = writes.length;
+  editor.buffer = "ab";
+  host.invalidate({ fixedOnly: true, force: true });
+  const raw = writes.slice(before).join("");
+
+  assert.match(raw, /^\x1b\[\?25l\x1b\[\?2026h\x1b\[3B\r/, "fixed-only redraw should first return from input cursor to render end");
+  assert.match(raw, /\x1b\[3A\r\x1b\[4C\x1b\[\?2026l\x1b\[\?25h$/, "fixed-only redraw should end back at the live input cursor");
+  assert.equal((raw.match(/STATUS/g) ?? []).length, 1, "fixed-only redraw should repaint the status line once, not layer it repeatedly");
+}
+
 function runEditorSessionResetRegression() {
   const editor = new EditorComponent({
     suggestions: () => [],
@@ -1167,6 +1199,7 @@ runEditorStatusGapRegression();
 runEditorBusySpacingRegression();
 runEditorWordWrapRegression();
 runEditorUsesHardwareCursorRegression();
+runFixedOnlyRenderReturnsFromHardwareCursorRegression();
 runEditorSessionResetRegression();
 runEditorImmediateSlashRegression();
 runThemeSelectorStartsOnActiveThemeRegression();
