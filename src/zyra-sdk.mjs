@@ -82,6 +82,14 @@ export function resolveZyraStartupPreferences(project = defaults.project, option
       ?? normalizeWebSearchPreference(process.env.ZYRA_WEB_FETCH)
       ?? readProjectWebFetchPreference(project, preferences)
       ?? true,
+    statusLine: normalizeStatusLinePreference(options.statusLine)
+      ?? normalizeStatusLinePreference(process.env.ZYRA_STATUS_LINE)
+      ?? readProjectStatusLinePreference(project, preferences)
+      ?? "default",
+    notifications: normalizeNotificationPreference(options.notifications)
+      ?? normalizeNotificationPreference(process.env.ZYRA_NOTIFICATIONS)
+      ?? readProjectNotificationPreference(project, preferences)
+      ?? "unfocused",
   };
 }
 
@@ -331,6 +339,8 @@ export async function createZyraSession(options = {}) {
     model: selectedModel,
     webSearch: startupPreferences.webSearch,
     webFetch: startupPreferences.webFetch,
+    statusLine: startupPreferences.statusLine,
+    notifications: startupPreferences.notifications,
   });
 
   return {
@@ -347,6 +357,8 @@ export async function createZyraSession(options = {}) {
     thinking,
     webSearch: startupPreferences.webSearch,
     webFetch: startupPreferences.webFetch,
+    statusLine: startupPreferences.statusLine,
+    notifications: startupPreferences.notifications,
     modelFallbackMessage: result.modelFallbackMessage,
   };
 }
@@ -938,6 +950,25 @@ function normalizeWebSearchPreference(value) {
   return undefined;
 }
 
+function normalizeStatusLinePreference(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) return undefined;
+  if (["default", "normal", "on", "true", "1"].includes(text)) return "default";
+  if (["minimal", "min"].includes(text)) return "minimal";
+  if (["full", "verbose"].includes(text)) return "full";
+  if (["off", "none", "false", "0", "hide", "hidden"].includes(text)) return "off";
+  return undefined;
+}
+
+function normalizeNotificationPreference(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) return undefined;
+  if (["on", "true", "1", "yes", "unfocused", "focus", "background", "bg"].includes(text)) return "unfocused";
+  if (["always", "all"].includes(text)) return "always";
+  if (["off", "none", "false", "0", "no", "silent", "disable", "disabled"].includes(text)) return "off";
+  return undefined;
+}
+
 async function preferDefaultModel(session, selector) {
   const [provider, ...modelParts] = String(selector ?? "").split("/");
   const modelId = modelParts.join("/");
@@ -1128,6 +1159,8 @@ export function describeRuntime(runtime) {
     thinking: runtime.session.thinkingLevel,
     webSearch: runtime.webSearch ?? isToolActive(runtime.session, ZYRA_WEB_SEARCH_TOOL_NAME),
     webFetch: runtime.webFetch ?? isToolActive(runtime.session, ZYRA_WEB_FETCH_TOOL_NAME),
+    statusLine: runtime.statusLine ?? "default",
+    notifications: runtime.notifications ?? "unfocused",
     model: model ? `${model.provider}/${model.id}` : "none",
   };
 }
@@ -1193,6 +1226,26 @@ export function setWebTools(runtime, options = {}) {
     });
   }
   return { webSearch, webFetch };
+}
+
+export function setStatusLine(runtime, value) {
+  const next = normalizeStatusLinePreference(value);
+  if (!next) {
+    throw new Error("Status line must be one of: default, minimal, full, off.");
+  }
+  runtime.statusLine = next;
+  writeProjectStatusLinePreference(runtime.project, next);
+  return next;
+}
+
+export function setNotifications(runtime, value) {
+  const next = normalizeNotificationPreference(value);
+  if (!next) {
+    throw new Error("Notifications must be one of: unfocused, always, off.");
+  }
+  runtime.notifications = next;
+  writeProjectNotificationPreference(runtime.project, next);
+  return next;
 }
 
 export function listZyraThemes(runtime) {
@@ -1287,6 +1340,16 @@ function readProjectWebFetchPreference(project, preferences = readProjectPrefere
   return normalizeWebSearchPreference(preferences.webFetch);
 }
 
+function readProjectStatusLinePreference(project, preferences = readProjectPreferences(project)) {
+  void project;
+  return normalizeStatusLinePreference(preferences.statusLine);
+}
+
+function readProjectNotificationPreference(project, preferences = readProjectPreferences(project)) {
+  void project;
+  return normalizeNotificationPreference(preferences.notifications);
+}
+
 function writeProjectWebSearchPreference(project, enabled) {
   const next = normalizeWebSearchPreference(enabled);
   if (!project || next === undefined) return;
@@ -1306,6 +1369,28 @@ function writeProjectWebFetchPreference(project, enabled) {
     ...preferences,
     webFetch: next,
     webFetchUpdatedAt: new Date().toISOString(),
+  });
+}
+
+function writeProjectStatusLinePreference(project, statusLine) {
+  const next = normalizeStatusLinePreference(statusLine);
+  if (!project || !next) return;
+  const preferences = readProjectPreferences(project);
+  writeProjectPreferences(project, {
+    ...preferences,
+    statusLine: next,
+    statusLineUpdatedAt: new Date().toISOString(),
+  });
+}
+
+function writeProjectNotificationPreference(project, notifications) {
+  const next = normalizeNotificationPreference(notifications);
+  if (!project || !next) return;
+  const preferences = readProjectPreferences(project);
+  writeProjectPreferences(project, {
+    ...preferences,
+    notifications: next,
+    notificationsUpdatedAt: new Date().toISOString(),
   });
 }
 
@@ -1333,6 +1418,12 @@ function persistExplicitStartupPreferences(project, options = {}, resolved = {})
   }
   if (options.webFetch !== undefined) {
     writeProjectWebFetchPreference(project, resolved.webFetch);
+  }
+  if (options.statusLine !== undefined) {
+    writeProjectStatusLinePreference(project, resolved.statusLine);
+  }
+  if (options.notifications !== undefined) {
+    writeProjectNotificationPreference(project, resolved.notifications);
   }
 }
 

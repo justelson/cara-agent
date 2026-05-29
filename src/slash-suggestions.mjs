@@ -1,29 +1,6 @@
 import { listCustomCommands, listZyraThemes } from "./zyra-sdk.mjs";
 import { applyFileMentionSuggestion, getFileMentionSuggestions } from "./file-mentions.mjs";
-
-const COMMANDS = [
-  { value: "/commands", label: "/commands", description: "show controls", kind: "command", submitOnEnter: true },
-  { value: "/start", label: "/start", description: "ask for the repo starting point", kind: "command", submitOnEnter: true },
-  { value: "/new", label: "/new", description: "fresh chat like Pi", kind: "command", submitOnEnter: true },
-  { value: "/session", label: "/session", description: "project, model, context, usage", kind: "command", submitOnEnter: true },
-  { value: "/chat", label: "/chat", description: "current chat file and totals", kind: "command", submitOnEnter: true },
-  { value: "/profile", label: "/profile", description: "show or switch elson/cara mode", kind: "command" },
-  { value: "/thinking", label: "/thinking", description: "cycle or set thinking effort", kind: "command" },
-  { value: "/themes", label: "/themes", description: "pick a theme", kind: "command", submitOnEnter: false },
-  { value: "/models", label: "/models", description: "open model picker", kind: "command" },
-  { value: "/memory", label: "/memory", description: "toggle memory for this chat", kind: "command", submitOnEnter: true },
-  { value: "/web", label: "/web", description: "choose web tools", kind: "command", submitOnEnter: true },
-  { value: "/websearch", label: "/websearch", description: "toggle web search", kind: "command", submitOnEnter: true },
-  { value: "/webfetch", label: "/webfetch", description: "toggle page fetching", kind: "command", submitOnEnter: true },
-  { value: "/auth", label: "/auth", description: "account, plan, and Codex limits", kind: "command", submitOnEnter: true },
-  { value: "/account", label: "/account", description: "same as /auth", kind: "command", submitOnEnter: true },
-  { value: "/codexusage", label: "/codexusage", description: "show Codex quota usage", kind: "command", submitOnEnter: true },
-  { value: "/login", label: "/login", description: "login with ChatGPT/Codex", kind: "command", submitOnEnter: true },
-  { value: "/logout", label: "/logout", description: "clear ChatGPT/Codex login", kind: "command", submitOnEnter: true },
-  { value: "/reload", label: "/reload", description: "reload Zyra from disk and resume", kind: "command", submitOnEnter: true },
-  { value: "/exit", label: "/exit", description: "leave", kind: "command", submitOnEnter: true },
-  { value: "/quit", label: "/quit", description: "leave", kind: "command", submitOnEnter: true },
-];
+import { listSlashCommandSuggestions, NOTIFICATION_MODES, STATUS_LINE_MODES } from "./slash-commands.mjs";
 
 export function getSlashSuggestions(runtime, text) {
   const fileMentions = getFileMentionSuggestions(runtime, text);
@@ -92,6 +69,16 @@ export function getSlashSuggestions(runtime, text) {
       }));
   }
 
+  if (query.startsWith("/statusline ") || query.startsWith("/status-line ")) {
+    const command = query.startsWith("/status-line ") ? "/status-line " : "/statusline ";
+    return buildSimpleArgumentSuggestions(STATUS_LINE_MODES, query.slice(command.length), "status line mode");
+  }
+
+  if (query.startsWith("/notifications ") || query.startsWith("/notify ")) {
+    const command = query.startsWith("/notify ") ? "/notify " : "/notifications ";
+    return buildSimpleArgumentSuggestions(NOTIFICATION_MODES, query.slice(command.length), "notification mode");
+  }
+
   if (query.startsWith("/themes ") || query.startsWith("/theme ")) {
     const command = query.startsWith("/theme ") ? "/theme " : "/themes ";
     const prefix = query.slice(command.length);
@@ -148,7 +135,7 @@ export function getSlashSuggestions(runtime, text) {
     kind: "command",
     submitOnEnter: false,
   }));
-  return [...COMMANDS, ...customCommands].filter((item) => item.label.slice(1).startsWith(prefix));
+  return [...listSlashCommandSuggestions(), ...customCommands].filter((item) => item.label.slice(1).startsWith(prefix));
 }
 
 export function applySlashSuggestion(text, item) {
@@ -195,6 +182,18 @@ function colorBlock(color) {
   const number = Number(color);
   if (Number.isFinite(number)) return `\x1b[48;5;${Math.max(0, Math.min(255, Math.round(number)))}m  \x1b[0m`;
   return "";
+}
+
+function buildSimpleArgumentSuggestions(values, prefix, description) {
+  return values
+    .filter((value) => value.startsWith(prefix))
+    .map((value) => ({
+      value,
+      label: value,
+      description,
+      kind: "argument",
+      submitOnEnter: true,
+    }));
 }
 
 function parseHexColor(value) {

@@ -18,6 +18,9 @@ const branchCacheMs = 4000;
 const costCache = new WeakMap();
 
 export function renderStatusLine(runtime, width = Math.max(24, (process.stdout.columns ?? 100) - 1), state = {}) {
+  const mode = String(runtime.statusLine ?? "default").toLowerCase();
+  if (mode === "off") return "";
+
   const session = runtime.session;
   const model = session.model;
   const modelLabel = model?.id ?? "no-model";
@@ -31,6 +34,10 @@ export function renderStatusLine(runtime, width = Math.max(24, (process.stdout.c
 
   const maxWidth = Math.max(24, width);
   const theme = buildTerminalTheme(runtime.terminalTheme);
+  if (mode === "minimal") {
+    return renderMinimalStatusLine({ theme, session, modelLabel, profile, context, cost, maxWidth });
+  }
+
   const modelStatus = `${modelLabel} ${thinking}${sep}${profile}`;
   const leftPlain = activity ? ` ${modelStatus}${sep}${activity}` : ` ${modelStatus}`;
   const rightBudget = Math.max(8, maxWidth - visibleWidth(leftPlain) - 1);
@@ -64,6 +71,29 @@ export function renderStatusLine(runtime, width = Math.max(24, (process.stdout.c
     : [color(contextColor(theme, session), right.context), low(theme.muted, sep), color(costColor(theme, right.cost), right.cost)].join("");
 
   return [left, " ".repeat(gap), rightColored, reset].join("");
+}
+
+function renderMinimalStatusLine({ theme, session, modelLabel, profile, context, cost, maxWidth }) {
+  const leftPlain = ` ${modelLabel}${sep}${profile}`;
+  const rightPlain = `${context}${sep}${cost}`;
+  const gap = Math.max(1, maxWidth - visibleWidth(leftPlain) - visibleWidth(rightPlain));
+  const plain = truncateToWidth(`${leftPlain}${" ".repeat(gap)}${rightPlain}`, maxWidth, "...");
+
+  if (plain.length < leftPlain.length + rightPlain.length) {
+    return low(theme.muted, plain);
+  }
+
+  const left = [
+    color(theme.primary, ` ${modelLabel}`),
+    low(theme.muted, sep),
+    color(profileColor(theme, profile), profile),
+  ].join("");
+  const right = [
+    color(contextColor(theme, session), context),
+    low(theme.muted, sep),
+    color(costColor(theme, cost), cost),
+  ].join("");
+  return [left, " ".repeat(gap), right, reset].join("");
 }
 
 function buildRightStatus(context, cwd, cost, width) {

@@ -5,37 +5,23 @@ import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import {
   buildInspectPrompt,
-  buildZyraAuthAccountStatus,
-  buildSessionInfo,
   checkSetup,
   createZyraSession,
-  createZyraMemoryController,
   defaults,
   describeRuntime,
-  fetchCodexUsageStats,
-  loadCustomCommand,
-  loginZyraAuth,
   listZyraSessions,
-  reloadZyraRuntime,
   runZyraPrompt,
   runZyraPrintPrompt,
   saveZyraExitSummary,
   startZyraMemoryBackgroundStartup,
-  logoutZyraAuth,
-  setZyraTheme,
-  setWebFetch,
-  setWebSearch,
-  setWebTools,
-  setModel,
-  setProfile,
-  setThinking,
 } from "./zyra-sdk.mjs";
 import { createZyraUi } from "./zyra-ui.mjs";
 import { runOnboarding, shouldRunOnboarding } from "./onboarding.mjs";
-import { buildProjectStartPrompt } from "./project-start.mjs";
+import { handleSlash } from "./slash-command-handlers.mjs";
 import { selectSession } from "./session-picker.mjs";
 import { applySlashSuggestion, getSlashSuggestions } from "./slash-suggestions.mjs";
 import { renderStatusLine } from "./status-line.mjs";
+import { createZyraTerminalTitle } from "./terminal-title.mjs";
 import { normalizeWebToolsMode, selectWebTools } from "./web-tools-picker.mjs";
 
 function parse(argv) {
@@ -52,6 +38,8 @@ function parse(argv) {
   let thinking = "";
   let profile = "";
   let terminalTheme = "";
+  let statusLine = "";
+  let notifications = "";
   let webSearch;
   let webFetch;
   let webMenu = false;
@@ -59,7 +47,7 @@ function parse(argv) {
   let skipOnboarding = false;
 
   if (args[0] === "--help" || args[0] === "-h") {
-    return { command: args[0], project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, profile, terminalTheme, webSearch, webFetch, webMenu, forceOnboarding, skipOnboarding };
+    return { command: args[0], project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, profile, terminalTheme, statusLine, notifications, webSearch, webFetch, webMenu, forceOnboarding, skipOnboarding };
   }
 
   if (args[0] && !args[0].startsWith("-")) {
@@ -82,6 +70,14 @@ function parse(argv) {
       i += 1;
     } else if (arg === "--theme" && args[i + 1]) {
       terminalTheme = args[i + 1];
+      i += 1;
+    } else if (arg === "--statusline" || arg === "--status-line") {
+      statusLine = args[i + 1] && !args[i + 1].startsWith("-") ? args[i + 1] : "default";
+      if (args[i + 1] && !args[i + 1].startsWith("-")) i += 1;
+    } else if (arg === "--no-statusline" || arg === "--no-status-line") {
+      statusLine = "off";
+    } else if (arg === "--notifications" && args[i + 1]) {
+      notifications = args[i + 1];
       i += 1;
     } else if (arg === "--websearch" || arg === "--web-search") {
       webSearch = true;
@@ -165,7 +161,7 @@ function parse(argv) {
     throw new Error('Usage: zyra -p "your question"');
   }
 
-  return { command, project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, profile, terminalTheme, webSearch, webFetch, webMenu, forceOnboarding, skipOnboarding };
+  return { command, project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, profile, terminalTheme, statusLine, notifications, webSearch, webFetch, webMenu, forceOnboarding, skipOnboarding };
 }
 
 function runUpdate() {
@@ -217,6 +213,21 @@ async function printSessions(_ui, _project) {
 async function main() {
   let ui = createZyraUi();
   const parsed = parse(process.argv.slice(2));
+  const terminalTitle = createZyraTerminalTitle({ project: parsed.project, state: "ready" });
+  process.once("exit", () => terminalTitle.dispose());
+
+  const setTerminalTitleState = (state, runtime) => {
+    terminalTitle.update({ state, runtime, project: runtime?.project ?? parsed.project });
+  };
+
+  const notifyTerminalIfUnfocused = (runtime) => {
+    terminalTitle.notify(runtime?.notifications ?? "unfocused");
+  };
+
+  const subscribeRuntimeEvents = (runtime, handler = (event) => ui.event(event)) => runtime.session.subscribe((event) => {
+    handler(event);
+    terminalTitle.fromEvent(event, runtime);
+  });
 
   if (parsed.command === "help" || parsed.command === "--help" || parsed.command === "-h") {
     ui.commands();
@@ -321,12 +332,16 @@ async function main() {
     thinking: parsed.thinking || undefined,
     profile: parsed.profile || undefined,
     terminalTheme: parsed.terminalTheme || undefined,
+    statusLine: parsed.statusLine || undefined,
+    notifications: parsed.notifications || undefined,
     webSearch: parsed.webSearch,
     webFetch: parsed.webFetch,
   };
 
   if (parsed.printMode || parsed.prompt) {
+    setTerminalTitleState("starting");
     const runtime = await createZyraSession(runtimeOptions);
+    setTerminalTitleState("ready", runtime);
     ui = createZyraUi({ openingTheme: runtime.theme, terminalTheme: runtime.terminalTheme });
 
     if (parsed.printMode) {
@@ -334,7 +349,10 @@ async function main() {
         console.error(runtime.modelFallbackMessage);
       }
       try {
+        setTerminalTitleState("thinking", runtime);
         const text = await runZyraPrintPrompt(runtime, parsed.prompt);
+        setTerminalTitleState("ready", runtime);
+        notifyTerminalIfUnfocused(runtime);
         if (text) process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
       } finally {
         runtime.session.dispose();
@@ -342,24 +360,33 @@ async function main() {
       return;
     }
 
-    runtime.session.subscribe((event) => ui.event(event));
+    const unsubscribe = subscribeRuntimeEvents(runtime);
     const status = describeRuntime(runtime);
     ui.banner(status);
     if (runtime.modelFallbackMessage) {
       console.log(runtime.modelFallbackMessage);
     }
-    await runZyraPrompt(runtime, parsed.prompt);
-    ui.done();
-    runtime.session.dispose();
+    try {
+      setTerminalTitleState("thinking", runtime);
+      await runZyraPrompt(runtime, parsed.prompt);
+      setTerminalTitleState("ready", runtime);
+      notifyTerminalIfUnfocused(runtime);
+      ui.done();
+    } finally {
+      unsubscribe?.();
+      runtime.session.dispose();
+    }
     return;
   }
 
+  setTerminalTitleState("starting");
   const stopStarting = ui.starting("Starting agent");
   let runtime = await createZyraSession(runtimeOptions).finally(stopStarting);
+  setTerminalTitleState("ready", runtime);
   ui.setTheme(runtime.terminalTheme);
   ui.banner(describeRuntime(runtime));
   startZyraMemoryBackgroundStartup(runtime);
-  let unsubscribe = runtime.session.subscribe((event) => ui.event(event));
+  let unsubscribe = subscribeRuntimeEvents(runtime);
   if (runtime.modelFallbackMessage) {
     ui.info(runtime.modelFallbackMessage);
   }
@@ -374,6 +401,7 @@ async function main() {
 
   const startFreshChat = async () => {
     ui.info("Starting a fresh Zyra chat...");
+    setTerminalTitleState("starting", runtime);
     const nextRuntime = await createZyraSession({
       ...runtimeOptions,
       sessionMode: "new",
@@ -384,8 +412,9 @@ async function main() {
     runtime = nextRuntime;
     ui.setTheme(runtime.terminalTheme);
     ui.resetSession(describeRuntime(runtime));
+    setTerminalTitleState("ready", runtime);
     startZyraMemoryBackgroundStartup(runtime);
-    unsubscribe = runtime.session.subscribe((event) => ui.event(event));
+    unsubscribe = subscribeRuntimeEvents(runtime);
     if (runtime.modelFallbackMessage) {
       ui.info(runtime.modelFallbackMessage);
     }
@@ -393,7 +422,11 @@ async function main() {
 
   const runPromptTurn = async (submission) => {
     const text = getSubmissionText(submission);
-    const slashResult = await handleSlash(runtime, ui, text, { startFreshChat });
+    const slashResult = await handleSlash(runtime, ui, text, {
+      startFreshChat,
+      setTerminalTitleState: (state) => setTerminalTitleState(state, runtime),
+      notifyTerminalIfUnfocused: () => notifyTerminalIfUnfocused(runtime),
+    });
     if (slashResult) {
       restartMode = slashResult === "restart" ? slashResult : "";
       exitRequested = Boolean(restartMode) || isExitInput(text);
@@ -403,8 +436,14 @@ async function main() {
       }
       return exitRequested;
     }
-    await runZyraPrompt(runtime, text, getSubmissionOptions(submission));
-    await drainPendingMidRunInputs();
+    setTerminalTitleState("thinking", runtime);
+    try {
+      await runZyraPrompt(runtime, text, getSubmissionOptions(submission));
+      await drainPendingMidRunInputs();
+    } finally {
+      setTerminalTitleState("ready", runtime);
+      notifyTerminalIfUnfocused(runtime);
+    }
     return false;
   };
 
@@ -413,8 +452,13 @@ async function main() {
     const updates = pendingMidRunInputs;
     pendingMidRunInputs = [];
     const followUp = buildMidRunFollowUpPrompt(updates);
-    await runZyraPrompt(runtime, followUp);
-    await drainPendingMidRunInputs();
+    setTerminalTitleState("thinking", runtime);
+    try {
+      await runZyraPrompt(runtime, followUp);
+      await drainPendingMidRunInputs();
+    } finally {
+      setTerminalTitleState("ready", runtime);
+    }
   };
 
   await ui.interactive(async (submission) => {
@@ -425,6 +469,7 @@ async function main() {
           abortRequested = true;
           suppressNextAbortError = true;
           pendingMidRunInputs = [];
+          setTerminalTitleState("stopped", runtime);
           ui.info("Stopping this run.");
           await runtime.session.abort?.();
           return false;
@@ -466,6 +511,7 @@ async function main() {
     statusLine: (width, state) => renderStatusLine(runtime, width, state),
     starterRecommendations: onboardingResult?.starterPrompt ? [{ prompt: onboardingResult.starterPrompt }] : [],
     theme: runtime.terminalTheme,
+    onTerminalFocusChange: (focused) => terminalTitle.setFocused(focused),
   });
   if (restartMode) {
     await restartZyraProcess(runtime, { mode: restartMode });
@@ -477,185 +523,7 @@ async function main() {
   }
   unsubscribe?.();
   runtime.session.dispose();
-}
-
-async function handleSlash(runtime, ui, input, controls = {}) {
-  const text = input.trim();
-  if (!text.startsWith("/") && !["exit", "quit"].includes(text)) return false;
-
-  const [rawCommand, ...rest] = text.split(/\s+/);
-  const command = rawCommand.toLowerCase();
-  const arg = rest.join(" ");
-
-  if (command === "/exit" || command === "/quit" || text === "exit" || text === "quit") return true;
-  if (command === "/commands" || command === "/help") {
-    ui.commands();
-    return true;
-  }
-  if (command === "/start") {
-    ui.beginProgress("Project scan");
-    try {
-      await runZyraPrompt(runtime, buildProjectStartPrompt(runtime, arg));
-    } finally {
-      ui.endProgress();
-    }
-    return true;
-  }
-  if (command === "/session") {
-    ui.status(describeRuntime(runtime));
-    return true;
-  }
-  if (command === "/profile") {
-    if (!arg) {
-      ui.info(`Profile: ${describeRuntime(runtime).profile}`);
-      return true;
-    }
-    const profile = setProfile(runtime, arg);
-    ui.info(`Profile: ${profile}`);
-    return true;
-  }
-  if (command === "/memory") {
-    const memory = createZyraMemoryController(runtime);
-    const action = arg.trim().toLowerCase();
-    if (action && !["on", "off", "enable", "enabled", "disable", "disabled"].includes(action)) {
-      ui.info("Usage: /memory, /memory on, /memory off");
-      return true;
-    }
-
-    const current = memory.threadMode();
-    const nextMode = ["on", "enable", "enabled"].includes(action)
-      ? "enabled"
-      : ["off", "disable", "disabled"].includes(action)
-        ? "disabled"
-        : current.mode === "enabled" ? "disabled" : "enabled";
-    const result = memory.setThreadMode(nextMode);
-    ui.info(`Memory ${result.mode === "enabled" ? "on" : "off"} for this chat.`);
-    return true;
-  }
-  if (command === "/web") {
-    const mode = normalizeWebToolsMode(arg);
-    const selected = mode ?? await ui.selectWebTools?.({
-      webSearch: runtime.webSearch,
-      webFetch: runtime.webFetch,
-    });
-    if (!selected) {
-      ui.info("Web tools unchanged.");
-      return true;
-    }
-    const next = setWebTools(runtime, selected);
-    ui.info(formatWebToolsStatus(next));
-    return true;
-  }
-  if (command === "/websearch" || command === "/web-search") {
-    const action = arg.trim().toLowerCase();
-    if (action && !["on", "off", "enable", "enabled", "disable", "disabled"].includes(action)) {
-      ui.info("Usage: /websearch, /websearch on, /websearch off");
-      return true;
-    }
-    const enabled = setWebSearch(runtime, action || undefined);
-    ui.info(`Web search ${enabled ? "on" : "off"}.`);
-    return true;
-  }
-  if (command === "/webfetch" || command === "/web-fetch") {
-    const action = arg.trim().toLowerCase();
-    if (action && !["on", "off", "enable", "enabled", "disable", "disabled"].includes(action)) {
-      ui.info("Usage: /webfetch, /webfetch on, /webfetch off");
-      return true;
-    }
-    const enabled = setWebFetch(runtime, action || undefined);
-    ui.info(`Web fetch ${enabled ? "on" : "off"}.`);
-    return true;
-  }
-  if (command === "/auth" || command === "/account") {
-    ui.info("Checking auth...");
-    ui.account(await buildZyraAuthAccountStatus(arg || "openai-codex"));
-    return true;
-  }
-  if (command === "/codexusage" || command === "/usage") {
-    ui.info("Checking Codex usage...");
-    ui.codexUsage(await fetchCodexUsageStats());
-    return true;
-  }
-  if (command === "/login") {
-    const provider = arg || "openai-codex";
-    ui.beginProgress("ChatGPT login");
-    try {
-      await loginZyraAuth(provider, { onMessage: (message) => ui.info(message) });
-      ui.account(await buildZyraAuthAccountStatus(provider));
-    } finally {
-      ui.endProgress();
-    }
-    return true;
-  }
-  if (command === "/logout") {
-    const provider = arg || "openai-codex";
-    ui.info(`Logging out of ${provider}...`);
-    await logoutZyraAuth(provider);
-    ui.account(await buildZyraAuthAccountStatus(provider));
-    return true;
-  }
-  if (command === "/reload" || command === "/realod") {
-    if (arg.trim() === "--soft") {
-      ui.info("Reloading commands, themes, prompt, and memory without restarting...");
-      const result = await reloadZyraRuntime(runtime);
-      ui.setTheme(result.theme);
-      ui.info(`Reloaded resources: ${result.commands} command${result.commands === 1 ? "" : "s"}, ${result.themes} theme${result.themes === 1 ? "" : "s"}.`);
-      return true;
-    }
-    ui.restartTransition("reloading zyra");
-    return "restart";
-  }
-  if (command === "/new") {
-    await controls.startFreshChat?.();
-    return true;
-  }
-  if (command === "/consolidate") {
-    const memory = createZyraMemoryController(runtime);
-    ui.beginProgress("Consolidating memory");
-    try {
-      const result = await memory.consolidate();
-      ui.info(memory.formatConsolidationResult(result));
-    } finally {
-      ui.endProgress();
-    }
-    return true;
-  }
-  if (command === "/chat") {
-    ui.sessionInfo(buildSessionInfo(runtime));
-    return true;
-  }
-  if (command === "/thinking" || command === "/effort") {
-    const level = setThinking(runtime, arg);
-    ui.info(`Thinking: ${level}`);
-    return true;
-  }
-  if (command === "/themes" || command === "/theme") {
-    if (!arg) {
-      ui.themes(describeRuntime(runtime).themes, runtime.terminalTheme?.name);
-      return true;
-    }
-    const theme = setZyraTheme(runtime, arg);
-    ui.setTheme(theme);
-    ui.info(`Theme: ${theme.name}`);
-    return true;
-  }
-  if (command === "/models") {
-    if (!arg) {
-      ui.info("Choose a model from the picker: type /models and press Enter.");
-      return true;
-    }
-    const model = await setModel(runtime, arg);
-    ui.info(`Model: ${model.provider}/${model.id}`);
-    return true;
-  }
-  const customPrompt = loadCustomCommand(runtime, command, arg);
-  if (customPrompt) {
-    await runZyraPrompt(runtime, customPrompt);
-    return true;
-  }
-
-  ui.error(new Error("Unknown slash command. Type /commands."));
-  return true;
+  terminalTitle.dispose();
 }
 
 async function restartZyraProcess(runtime, options = {}) {
@@ -673,6 +541,8 @@ async function restartZyraProcess(runtime, options = {}) {
   if (runtime.profile) args.push("--profile", runtime.profile);
   if (runtime.session.thinkingLevel) args.push("--thinking", runtime.session.thinkingLevel);
   if (runtime.terminalTheme?.name) args.push("--theme", runtime.terminalTheme.name);
+  if (runtime.statusLine) args.push("--statusline", runtime.statusLine);
+  if (runtime.notifications) args.push("--notifications", runtime.notifications);
   if (runtime.session.model) args.push("--model", `${runtime.session.model.provider}/${runtime.session.model.id}`);
   args.push(runtime.webSearch ? "--websearch" : "--no-websearch");
   args.push(runtime.webFetch ? "--webfetch" : "--no-webfetch");
@@ -715,13 +585,6 @@ function prepareStdinForRestart() {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function formatWebToolsStatus(status = {}) {
-  if (status.webSearch && status.webFetch) return "Web tools: all on.";
-  if (!status.webSearch && !status.webFetch) return "Web tools: off.";
-  if (status.webSearch) return "Web tools: search only.";
-  return "Web tools: fetch only.";
 }
 
 function isExitInput(input) {

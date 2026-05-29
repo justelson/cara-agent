@@ -3,6 +3,10 @@ import { stdin as input } from "node:process";
 import { EditorComponent } from "./tui/components/editor.mjs";
 
 const busyAnimationMs = 120;
+const enableFocusChange = "\x1b[?1004h";
+const disableFocusChange = "\x1b[?1004l";
+const focusGained = "\x1b[I";
+const focusLost = "\x1b[O";
 
 export async function runTerminalInputLoop(onInput, options = {}, controls = {}) {
   if (!input.isTTY || !controls.host) {
@@ -14,6 +18,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls = {})
   readline.emitKeypressEvents(input);
   input.setRawMode(true);
   input.resume();
+  host.output.write?.(enableFocusChange);
 
   let cleanedUp = false;
   let resizeRenderTimer = undefined;
@@ -46,6 +51,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls = {})
   };
 
   const onKeypress = async (str, key) => {
+    if (isFocusSequence(str, key)) return;
     try {
       await editor.handleKeypress(str, key);
     } catch (error) {
@@ -53,10 +59,18 @@ export async function runTerminalInputLoop(onInput, options = {}, controls = {})
     }
   };
 
+  const onData = (chunk) => {
+    const text = chunk?.toString?.("utf8") ?? "";
+    if (text.includes(focusGained)) controls.onTerminalFocusChange?.(true);
+    if (text.includes(focusLost)) controls.onTerminalFocusChange?.(false);
+  };
+
   const cleanup = (cleanupOptions = {}) => {
     if (cleanedUp) return;
     cleanedUp = true;
     input.off("keypress", onKeypress);
+    input.off("data", onData);
+    host.output.write?.(disableFocusChange);
     if (cleanupOptions.restart) {
       input.removeAllListeners?.("keypress");
       input.removeAllListeners?.("data");
@@ -79,6 +93,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls = {})
   controls.setRenderers?.(() => host.invalidate({ force: true }), () => host.clearRendered());
   host.output.on?.("resize", scheduleResizeRender);
   process.on?.("SIGWINCH", scheduleResizeRender);
+  input.on("data", onData);
   input.on("keypress", onKeypress);
 
   const animation = setInterval(() => {
@@ -92,6 +107,10 @@ export async function runTerminalInputLoop(onInput, options = {}, controls = {})
 
 function outputOffResize(host, handler) {
   host?.output?.off?.("resize", handler);
+}
+
+function isFocusSequence(str, key) {
+  return [str, key?.sequence].some((value) => value === focusGained || value === focusLost);
 }
 
 async function readPipe(onInput) {

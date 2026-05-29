@@ -399,6 +399,7 @@ export function createZyraUi(options = {}) {
           onError(error) {
             appendPanel(errorPanel(error, theme));
           },
+          onTerminalFocusChange: options.onTerminalFocusChange,
           setRenderers() {},
           clearRenderers() {
             inputActive = false;

@@ -1,4 +1,5 @@
 import { buildTerminalTheme } from "../../terminal-theme.mjs";
+import { listSlashCommands } from "../../slash-commands.mjs";
 import {
   renderAccountStatusBox,
   renderCodexUsageBox,
@@ -32,7 +33,7 @@ export class LinesPanelComponent {
 }
 
 export function commandsPanel(theme = fallbackTheme, width = 100) {
-  return new LinesPanelComponent(`commands-${Date.now()}`, renderCommandsBox(theme, width));
+  return new LinesPanelComponent(`commands-${Date.now()}`, renderCommandsBox(theme, width, listSlashCommands()));
 }
 
 export function statusPanel(status, theme = fallbackTheme, width = 100) {

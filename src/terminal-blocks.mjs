@@ -62,7 +62,7 @@ export function renderStatusBox(status = {}, theme = fallbackTheme, terminalColu
   return renderBox(rows, theme, width, contentWidth);
 }
 
-export function renderCommandsBox(theme = fallbackTheme, terminalColumns = 100) {
+export function renderCommandsBox(theme = fallbackTheme, terminalColumns = 100, commands = []) {
   const width = standardPanelWidth(terminalColumns);
   const contentWidth = Math.max(24, width - 4);
   const commandWidth = 25;
@@ -70,29 +70,8 @@ export function renderCommandsBox(theme = fallbackTheme, terminalColumns = 100) 
     `${bold}${theme.primary}>_ Slash commands${reset}`,
     `${theme.muted}Type a command, or use Tab / arrow keys to complete suggestions.${reset}`,
     "",
-    commandRow("/commands", "show this list", theme, commandWidth),
-    commandRow("/start", "scan/orient to the project", theme, commandWidth),
-    commandRow("/session", "show model, directory, context, and usage", theme, commandWidth),
-    commandRow("/chat", "show current chat file, messages, tokens, and cost", theme, commandWidth),
-    commandRow("/memory", "toggle memory logging for this chat", theme, commandWidth),
-    commandRow("/web", "choose web tools", theme, commandWidth),
-    commandRow("/websearch [on|off]", "toggle web search", theme, commandWidth),
-    commandRow("/webfetch [on|off]", "toggle page fetching", theme, commandWidth),
-    "",
-    commandRow("/new", "fresh chat, no previous messages", theme, commandWidth),
-    commandRow("/reload", "reload Zyra from disk and resume this chat", theme, commandWidth),
+    ...renderRegisteredCommandRows(commands, theme, commandWidth),
     commandRow("/reload --soft", "reload commands, themes, prompt, and memory only", theme, commandWidth),
-    commandRow("/exit, /quit", "leave", theme, commandWidth),
-    "",
-    commandRow("/profile [name]", "show or set active profile: auto, elson, cara", theme, commandWidth),
-    commandRow("/thinking [level]", "cycle or set effort: off, minimal, low, medium, high, xhigh", theme, commandWidth),
-    commandRow("/themes [name]", "list or switch terminal themes", theme, commandWidth),
-    commandRow("/models <provider/model>", "switch model", theme, commandWidth),
-    "",
-    commandRow("/auth, /account", "show ChatGPT/Codex account and limits", theme, commandWidth),
-    commandRow("/login", "login with ChatGPT Plus/Pro via Pi auth", theme, commandWidth),
-    commandRow("/logout", "clear stored ChatGPT/Codex login", theme, commandWidth),
-    commandRow("/codexusage", "show current Codex quota usage", theme, commandWidth),
     "",
     commandRow("@file", "search and attach project files in prompts", theme, commandWidth),
     commandRow("/<custom>", "run .zyra/commands/<custom>.md", theme, commandWidth),
@@ -103,6 +82,13 @@ export function renderCommandsBox(theme = fallbackTheme, terminalColumns = 100) 
     commandRow("zyra -p \"...\"", "print one answer and exit", theme, commandWidth),
   ];
   return renderBox(rows, theme, width, contentWidth);
+}
+
+function renderRegisteredCommandRows(commands, theme, commandWidth) {
+  if (!commands.length) return [];
+  return commands.map((command) => {
+    return commandRow(command.panelLabel ?? `/${command.name}`, command.description, theme, commandWidth);
+  });
 }
 
 export function renderAccountStatusBox(account = {}, theme = fallbackTheme, terminalColumns = 100) {
