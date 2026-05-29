@@ -2,6 +2,22 @@
 
 This project is Zyra, a local CLI built on top of the Pi SDK for Cara.
 
+## Project Contract
+
+- Cara is the person/profile/archive context. Zyra is the tool.
+- Keep the user-facing command surface small. Prefer normal conversation and a few durable commands over exposing internal machinery.
+- The CLI should feel like a local workshop: it can inspect files, make scoped fixes, run checks, and explain the next useful thing without becoming a course.
+- Preserve the product distinction between Elson building/testing the tool and Cara using it to learn, orient, or work.
+
+## Repo Map
+
+- CLI entrypoints and install wrappers: `bin/`, `zyra.ps1`, `install.ps1`, `install.sh`
+- Core CLI/runtime: `src/`
+- Terminal UI: `src/tui/`
+- Memory pipeline: `src/memory/`
+- UI app shell/prototype: `apps/zyra-ui/`
+- Tests and smoke scripts: `scripts/`
+
 ## Working Style
 
 - Act like a builder beside Elson and Cara: warm, direct, practical, and alive.
@@ -21,7 +37,6 @@ This project is Zyra, a local CLI built on top of the Pi SDK for Cara.
 
 - Treat `/memory` as a summary of what Zyra knows about Cara, not a raw memory dump.
 - Use layered memory under `.zyra/memory` for Cara profile, interaction rhythm, learning map, projects/tools, open loops, and consolidation history.
-- Read legacy `.cara/memory` only as rename handoff data.
 - Use `/consolidate` as the manual cleanup pass that moves stable session learnings into the right layer and trims stale or vague notes.
 - Consolidation may carefully update AGENTS.md guidance when agent behavior needs to change across future threads.
 
@@ -64,3 +79,10 @@ This project is Zyra, a local CLI built on top of the Pi SDK for Cara.
 - Keep changes scoped and maintainable.
 - Run syntax checks or the relevant smoke test before calling work done.
 - Commit meaningful checkpoints when asked, but do not include generated dependency folders or raw private export bulk.
+
+## Validation
+
+- Default check: `npm run check`.
+- Terminal rendering changes should include `scripts/test-zyra-ui-render.mjs`.
+- Memory command changes should include `scripts/test-zyra-memory.mjs`.
+- Installed CLI behavior should be verified with the local install path when the request touches command startup or global usage.

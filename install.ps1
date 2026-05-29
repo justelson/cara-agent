@@ -1,6 +1,6 @@
 param(
   [switch]$SkipNodeInstall,
-  [string]$Repo = "justelson/cara-agent",
+  [string]$Repo = "justelson/zyra",
   [string]$Ref = "master",
   [string]$InstallDir = "$env:LOCALAPPDATA\Zyra",
   [switch]$NoPathUpdate,
@@ -248,7 +248,6 @@ function Ensure-PathEntry($Dir) {
 function Ensure-ZyraCommands($Root) {
   $shimDir = Join-Path $Root "shims"
   $zyraShim = Join-Path $shimDir "zyra.cmd"
-  $caraShim = Join-Path $shimDir "cara.cmd"
   New-Item -ItemType Directory -Force -Path $shimDir | Out-Null
   $zyraContent = @"
 @echo off
@@ -257,15 +256,8 @@ set "ZYRA_ROOT=%~dp0.."
 call "%ZYRA_ROOT%\zyra.cmd" %*
 exit /b %ERRORLEVEL%
 "@
-  $caraContent = @"
-@echo off
-setlocal
-set "ZYRA_ROOT=%~dp0.."
-call "%ZYRA_ROOT%\cara.cmd" %*
-exit /b %ERRORLEVEL%
-"@
   Set-Content -Path $zyraShim -Value $zyraContent -Encoding ASCII
-  Set-Content -Path $caraShim -Value $caraContent -Encoding ASCII
+  Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $shimDir "cara.cmd")
   return $shimDir
 }
 
@@ -316,9 +308,6 @@ Write-Host "Checking install..."
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""
-Write-Host "Zyra is installed. Try:"
-Write-Host "  zyra login"
-Write-Host "  zyra auth"
+Write-Host "Zyra is installed."
+Write-Host "Open a new terminal and run:"
 Write-Host "  zyra"
-Write-Host ""
-Write-Host "Legacy handoff: cara still works as an alias for now."

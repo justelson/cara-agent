@@ -27,9 +27,8 @@ Not a course. Not a chatbot pretending to be a teacher. A local workshop she can
 
 - The CLI is now `zyra`.
 - The package is now `zyra@0.2.0`.
-- Project-local state now uses `.zyra/` instead of `.cara/`.
-- Existing `.cara/` sessions, commands, themes, and memory are read or copied forward as legacy handoff data.
-- The old `cara` command remains as a compatibility alias during the transition.
+- Project-local state uses `.zyra/`.
+- The old `cara` command and `.cara/` compatibility path have been removed.
 - Cara remains the person/profile/archive name.
 
 ## Run It Locally
@@ -38,24 +37,18 @@ Not a course. Not a chatbot pretending to be a teacher. A local workshop she can
 .\zyra.ps1
 ```
 
-Compatibility still works:
-
-```powershell
-.\cara.ps1
-```
-
 ## Install Or Update
 
 Fresh Windows install from PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/justelson/cara-agent/master/install.ps1 | iex
+irm https://raw.githubusercontent.com/justelson/zyra/master/install.ps1 | iex
 ```
 
 Fresh Windows install from Command Prompt:
 
 ```cmd
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/justelson/cara-agent/master/install.ps1 | iex"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/justelson/zyra/master/install.ps1 | iex"
 ```
 
 That installs Zyra into:
@@ -64,7 +57,9 @@ That installs Zyra into:
 %LOCALAPPDATA%\Zyra
 ```
 
-and adds the `zyra` command to the user PATH. It also leaves a `cara` shim in place so old habits/scripts keep forwarding during the rename window.
+and adds the `zyra` command to the user PATH.
+
+On first run, `zyra` opens a short onboarding flow for Cara: what Zyra is, ChatGPT login, theme, web tools, and a first prompt she can ask.
 
 From a local clone:
 
@@ -84,23 +79,6 @@ On macOS/Linux:
 bash install.sh
 ```
 
-## Handoff From An Existing Cara Install
-
-If `cara` is already installed, update it first:
-
-```powershell
-cara --update
-```
-
-Then open a new terminal and use:
-
-```powershell
-zyra doctor
-zyra
-```
-
-If `zyra` is not found after update, run the installer once from this repo or from the one-line install above. Your old `cara` command should still work as a fallback alias.
-
 ## Auth Setup
 
 Zyra uses Pi auth under the hood, so ChatGPT/Codex credentials stay in the same Pi auth file:
@@ -109,7 +87,7 @@ Zyra uses Pi auth under the hood, so ChatGPT/Codex credentials stay in the same 
 ~/.pi/agent/auth.json
 ```
 
-On Cara's machine, log in with her own ChatGPT Plus/Pro account:
+On Cara's machine, the first-run onboarding can guide login. Manual login also works:
 
 ```powershell
 zyra login
@@ -130,10 +108,14 @@ Do not copy Elson's `auth.json` to Cara's machine. Let her log in so the tokens 
 
 ```powershell
 zyra
+zyra onboarding
 zyra inspect
 zyra ask "Explain this error simply"
 zyra -p "Explain this error simply"
 zyra --project "C:\path\to\repo"
+zyra --web
+zyra --no-websearch
+zyra --no-webfetch
 zyra sessions
 zyra continue
 zyra resume
@@ -149,6 +131,8 @@ Inside chat:
 - `/session` shows project/session/model info.
 - `/profile` switches between `elson`, `cara`, and `auto`.
 - `/memory` summarizes what Zyra knows about Cara.
+- `/web` opens web tool selection: all, none, search only, or fetch only.
+- `/websearch` toggles search results. `/webfetch` toggles URL page fetching.
 - `/consolidate` cleans up local memory after meaningful sessions.
 - `/themes`, `/thinking`, and `/models` adjust runtime behavior.
 - `/reload` restarts Zyra from disk and resumes the chat.

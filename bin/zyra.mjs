@@ -12,7 +12,6 @@ const result = spawnSync(process.execPath, [cli, ...process.argv.slice(2)], {
   env: {
     ...process.env,
     ZYRA_CALLER_CWD: process.env.ZYRA_CALLER_CWD ?? process.cwd(),
-    CARA_CALLER_CWD: process.env.CARA_CALLER_CWD ?? process.env.ZYRA_CALLER_CWD ?? process.cwd(),
   },
 });
 

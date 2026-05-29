@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { buildTerminalTheme } from "./terminal-theme.mjs";
 
@@ -139,19 +139,31 @@ function getGitBranch(cwd) {
     return cached.branch;
   }
 
-  const branch = readGitBranch(cwd);
-  branchCache.set(key, { branch, checkedAt: now });
-  return branch;
+  if (!cached?.inFlight) {
+    const branch = cached?.branch ?? "";
+    branchCache.set(key, { branch, checkedAt: cached?.checkedAt ?? 0, inFlight: true });
+    refreshGitBranch(cwd, key, branch);
+  }
+  return cached?.branch ?? "";
 }
 
-function readGitBranch(cwd) {
-  const branch = runGit(cwd, ["branch", "--show-current"]);
+async function refreshGitBranch(cwd, key, previousBranch = "") {
+  try {
+    const branch = await readGitBranch(cwd);
+    branchCache.set(key, { branch, checkedAt: Date.now(), inFlight: false });
+  } catch {
+    branchCache.set(key, { branch: previousBranch, checkedAt: Date.now(), inFlight: false });
+  }
+}
+
+async function readGitBranch(cwd) {
+  const branch = await runGit(cwd, ["branch", "--show-current"]);
   if (branch) return branch;
 
-  const ref = runGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const ref = await runGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
   if (ref && ref !== "HEAD") return ref;
 
-  const commit = runGit(cwd, ["rev-parse", "--short", "HEAD"]);
+  const commit = await runGit(cwd, ["rev-parse", "--short", "HEAD"]);
   return commit ? `detached:${commit}` : "";
 }
 
@@ -191,13 +203,30 @@ function low(style, text) {
 }
 
 function runGit(cwd, args) {
-  const result = spawnSync("git", ["-C", cwd, ...args], {
-    encoding: "utf8",
-    windowsHide: true,
-    timeout: 700,
+  return new Promise((resolve) => {
+    const child = spawn("git", ["-C", cwd, ...args], {
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    let stdout = "";
+    let settled = false;
+    const done = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(String(value ?? "").trim());
+    };
+    const timeout = setTimeout(() => {
+      child.kill();
+      done("");
+    }, 700);
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.once("error", () => done(""));
+    child.once("close", (code) => done(code === 0 ? stdout : ""));
   });
-  if (result.status !== 0) return "";
-  return String(result.stdout ?? "").trim();
 }
 
 function visibleWidth(value) {

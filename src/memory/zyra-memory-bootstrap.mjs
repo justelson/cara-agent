@@ -2,7 +2,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -12,7 +11,6 @@ export function createMemoryBootstrapPath(deps) {
   return {
     ensureMemoryWorkspace(root) {
       const paths = deps.getMemoryPaths(root);
-      migrateLegacyMemoryDir(root, deps);
       for (const dir of [
         paths.root,
         paths.stage1,
@@ -32,7 +30,7 @@ export function createMemoryBootstrapPath(deps) {
       writeIfMissing(paths.adHocInstructions, deps.adHocInstructions);
 
       let state = deps.readMemoryState(root);
-      state = migrateLegacyLayerFiles(root, state, deps);
+      state = migrateLayerFiles(root, state, deps);
       deps.writeMemoryState(root, state);
       deps.rebuildPhase2Inputs(root);
       return deps.readMemoryState(root);
@@ -51,27 +49,12 @@ export function createMemoryBootstrapPath(deps) {
   };
 }
 
-function migrateLegacyMemoryDir(root, deps) {
-  const primary = path.join(path.resolve(root), deps.memoryDir);
-  const legacy = path.join(path.resolve(root), deps.legacyMemoryDir);
-  if (existsSync(primary) || !existsSync(legacy)) return;
-  mkdirSync(path.dirname(primary), { recursive: true });
-  mkdirSync(primary, { recursive: true });
-  for (const file of safeReadDir(legacy)) {
-    const source = path.join(legacy, file);
-    const target = path.join(primary, file);
-    if (statSync(source).isFile() && !existsSync(target)) {
-      writeFileSync(target, readFileSync(source));
-    }
-  }
-}
-
-function migrateLegacyLayerFiles(root, state, deps) {
+function migrateLayerFiles(root, state, deps) {
   const paths = deps.getMemoryPaths(root);
   if (state.migrations.legacyLayersAt) return state;
   const legacy = [];
   let newest = 0;
-  for (const file of deps.legacyLayerFiles) {
+  for (const file of deps.layerFiles) {
     const fullPath = path.join(paths.root, file);
     if (!existsSync(fullPath)) continue;
     const text = readText(fullPath).trim();
@@ -115,14 +98,6 @@ function writeIfMissing(file, content) {
   if (existsSync(file)) return;
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, content, "utf8");
-}
-
-function safeReadDir(dir) {
-  try {
-    return readdirSync(dir).sort();
-  } catch {
-    return [];
-  }
 }
 
 function readText(file) {

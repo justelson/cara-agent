@@ -11,22 +11,15 @@ const COMMANDS = [
   { value: "/thinking", label: "/thinking", description: "cycle or set thinking effort", kind: "command" },
   { value: "/themes", label: "/themes", description: "pick a theme", kind: "command", submitOnEnter: false },
   { value: "/models", label: "/models", description: "open model picker", kind: "command" },
-  { value: "/memory", label: "/memory", description: "memory overview and sources", kind: "command", submitOnEnter: true },
-  { value: "/memory search", label: "/memory search", description: "search source-backed memory", kind: "command", submitOnEnter: false },
-  { value: "/memory sources", label: "/memory sources", description: "list stage-1 memory sources", kind: "command", submitOnEnter: true },
-  { value: "/memory jobs", label: "/memory jobs", description: "show memory worker jobs", kind: "command", submitOnEnter: true },
-  { value: "/memory startup", label: "/memory startup", description: "scan sessions and prepare stage-1 inputs", kind: "command", submitOnEnter: true },
-  { value: "/memory mode", label: "/memory mode", description: "show or set current thread memory mode", kind: "command", submitOnEnter: false },
-  { value: "/memory enable", label: "/memory enable", description: "enable memory for this thread", kind: "command", submitOnEnter: true },
-  { value: "/memory disable", label: "/memory disable", description: "disable memory for this thread", kind: "command", submitOnEnter: true },
-  { value: "/memory rebuild", label: "/memory rebuild", description: "rebuild memory inputs from stage-1 files", kind: "command", submitOnEnter: true },
-  { value: "/memory reset", label: "/memory reset", description: "clear generated memory, keep notes", kind: "command", submitOnEnter: true },
+  { value: "/memory", label: "/memory", description: "toggle memory for this chat", kind: "command", submitOnEnter: true },
+  { value: "/web", label: "/web", description: "choose web tools", kind: "command", submitOnEnter: true },
+  { value: "/websearch", label: "/websearch", description: "toggle web search", kind: "command", submitOnEnter: true },
+  { value: "/webfetch", label: "/webfetch", description: "toggle page fetching", kind: "command", submitOnEnter: true },
   { value: "/auth", label: "/auth", description: "account, plan, and Codex limits", kind: "command", submitOnEnter: true },
   { value: "/account", label: "/account", description: "same as /auth", kind: "command", submitOnEnter: true },
   { value: "/codexusage", label: "/codexusage", description: "show Codex quota usage", kind: "command", submitOnEnter: true },
   { value: "/login", label: "/login", description: "login with ChatGPT/Codex", kind: "command", submitOnEnter: true },
   { value: "/logout", label: "/logout", description: "clear ChatGPT/Codex login", kind: "command", submitOnEnter: true },
-  { value: "/consolidate", label: "/consolidate", description: "extract and consolidate staged memory", kind: "command", submitOnEnter: true },
   { value: "/reload", label: "/reload", description: "reload Zyra from disk and resume", kind: "command", submitOnEnter: true },
   { value: "/exit", label: "/exit", description: "leave", kind: "command", submitOnEnter: true },
   { value: "/quit", label: "/quit", description: "leave", kind: "command", submitOnEnter: true },
@@ -61,6 +54,39 @@ export function getSlashSuggestions(runtime, text) {
         value: profile,
         label: profile,
         description: profile === "auto" ? "detect from OS account" : "active profile",
+        kind: "argument",
+        submitOnEnter: true,
+      }));
+  }
+
+  if (query.startsWith("/web ")) {
+    const prefix = query.slice("/web ".length);
+    return ["all", "none", "websearch", "webfetch"]
+      .filter((value) => value.startsWith(prefix))
+      .map((value) => ({
+        value,
+        label: value,
+        description: "web tools",
+        kind: "argument",
+        submitOnEnter: true,
+      }));
+  }
+
+  if (query.startsWith("/websearch ") || query.startsWith("/web-search ") || query.startsWith("/webfetch ") || query.startsWith("/web-fetch ")) {
+    const command = query.startsWith("/web-search ")
+      ? "/web-search "
+      : query.startsWith("/webfetch ")
+        ? "/webfetch "
+        : query.startsWith("/web-fetch ")
+          ? "/web-fetch "
+          : "/websearch ";
+    const prefix = query.slice(command.length);
+    return ["on", "off"]
+      .filter((value) => value.startsWith(prefix))
+      .map((value) => ({
+        value,
+        label: value,
+        description: "web search",
         kind: "argument",
         submitOnEnter: true,
       }));

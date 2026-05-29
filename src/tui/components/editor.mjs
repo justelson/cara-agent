@@ -39,6 +39,8 @@ export class EditorComponent {
     this.inputHistoryDraft = "";
     this.hasTranscript = false;
     this.waiting = false;
+    this.exitingForRestart = false;
+    this.inputLocked = false;
     this.busyFrame = 0;
     this.starterRecommendations = normalizeStarterRecommendations(options.starterRecommendations);
     this.starterRecommendationDismissed = false;
@@ -62,6 +64,10 @@ export class EditorComponent {
     this.invalidateInput();
   }
 
+  setInputLocked(value) {
+    this.inputLocked = Boolean(value);
+  }
+
   resetSession() {
     if (this.pendingInsertTimer) {
       clearTimeout(this.pendingInsertTimer);
@@ -80,6 +86,7 @@ export class EditorComponent {
     this.inputHistoryDraft = "";
     this.hasTranscript = false;
     this.waiting = false;
+    this.exitingForRestart = false;
     this.busyFrame = 0;
     this.starterRecommendationDismissed = false;
     this.insertedStarterPrompt = "";
@@ -158,6 +165,12 @@ export class EditorComponent {
   }
 
   async handleKeypress(str, key) {
+    if (this.inputLocked) {
+      if (key?.ctrl && key.name === "c") {
+        this.onExit(130);
+      }
+      return;
+    }
     const isPlainTextInput = str && !key?.ctrl && !key?.meta && !key?.alt && (str >= " " || /\r|\n/.test(str));
     if (!isPlainTextInput) this.flushPendingTextInput();
     if (key?.ctrl && key.name === "c") {
@@ -192,7 +205,7 @@ export class EditorComponent {
         const completed = this.completeSelection({ submitOnEnter: true });
         if (typeof completed === "string" && completed.length > 0) {
           const shouldExit = await this.submit(completed);
-          if (shouldExit) this.onExit(0);
+          if (shouldExit) this.onExit(shouldExit === "restart" ? "restart" : 0);
         }
         return;
       }
@@ -202,7 +215,7 @@ export class EditorComponent {
         return;
       }
       const shouldExit = await this.submit(text);
-      if (shouldExit) this.onExit(0);
+      if (shouldExit) this.onExit(shouldExit === "restart" ? "restart" : 0);
       return;
     }
     if (key?.name === "backspace") {
@@ -289,10 +302,15 @@ export class EditorComponent {
     this.waiting = hasImages || shouldShowWaitingFor(submittedText);
     this.invalidateInput({ force: true });
     try {
-      return await this.onSubmit(submission);
+      const result = await this.onSubmit(submission);
+      if (result === "restart") {
+        this.exitingForRestart = true;
+        return result;
+      }
+      return result;
     } finally {
       this.waiting = false;
-      this.invalidateInput();
+      if (!this.exitingForRestart) this.invalidateInput();
     }
   }
 
@@ -546,7 +564,7 @@ function renderEditorLines({ prompt, text = "", placeholder = "message..." }, wi
   const rowWidth = Math.max(1, width - promptWidth);
   if (!text) {
     return {
-      lines: [`${prompt} ${theme.muted}${placeholder}${reset}`],
+      lines: [`${prompt}${theme.muted}${placeholder}${reset}`],
       cursor: { row: 0, col: promptWidth },
     };
   }

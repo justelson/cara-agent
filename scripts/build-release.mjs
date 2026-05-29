@@ -27,4 +27,4 @@ console.log(`Built ${path.relative(root, zipPath)}`);
 console.log(`Wrote ${path.relative(root, checksumPath)}`);
 console.log("");
 console.log("Windows one-line install after pushing this commit:");
-console.log("irm https://raw.githubusercontent.com/justelson/cara-agent/master/install.ps1 | iex");
+console.log("irm https://raw.githubusercontent.com/justelson/zyra/master/install.ps1 | iex");

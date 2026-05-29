@@ -14,6 +14,7 @@ import {
 
 const fallbackTheme = buildTerminalTheme();
 const assistantPadding = "  ";
+const maxToolOutputLineLength = 180;
 
 export class UserMessageComponent {
   constructor(key, text, theme = fallbackTheme) {
@@ -171,7 +172,7 @@ export function summarizeToolResult(result) {
   const text = content.map((item) => item?.text).filter(Boolean).join("\n").trim();
   if (!text) return [];
   const lines = text.split(/\r?\n/).filter(Boolean);
-  const visible = lines.slice(0, 4);
+  const visible = lines.slice(0, 4).map((line) => truncatePlain(line, maxToolOutputLineLength));
   if (lines.length > visible.length) {
     visible.push(`... ${lines.length - visible.length} more output line${lines.length - visible.length === 1 ? "" : "s"}`);
   }
@@ -462,19 +463,10 @@ function renderToolRow(row, theme = fallbackTheme, width = 100, surface = theme.
     const gap = right ? 2 : 0;
     const leftWidth = Math.max(1, contentWidth - visibleWidth(right) - gap);
     const color = toolRowColor(row.kind, theme);
-    const wrapped = wrapCodeRow(row.text ?? "", leftWidth);
-    const firstLeft = `${prefix}${color}${wrapped[0] ?? ""}`;
+    const commandText = truncatePlain(compactToolCommand(row.text), leftWidth);
+    const firstLeft = `${prefix}${color}${commandText}`;
     const spaces = right ? " ".repeat(Math.max(1, width - visibleWidth(firstLeft) - visibleWidth(right))) : "";
-    const lines = [`${surface}${padToVisibleWidth(`${firstLeft}${spaces}${right}`, width)}${reset}`];
-    const continuationPrefix = "  ";
-    const continuationWidth = Math.max(1, width - visibleWidth(continuationPrefix));
-    for (const rawLine of wrapped.slice(1)) {
-      for (const line of wrapCodeRow(rawLine, continuationWidth)) {
-        const content = `${continuationPrefix}${color}${line}`;
-        lines.push(`${surface}${padToVisibleWidth(content, width)}${reset}`);
-      }
-    }
-    return lines;
+    return [`${surface}${padToVisibleWidth(`${firstLeft}${spaces}${right}`, width)}${reset}`];
   }
   if (row.kind === "title") {
     const rowContent = `${prefix}${renderToolTitle(row, theme, contentWidth)}`;
@@ -508,6 +500,10 @@ function wrapCodeRow(text, width = 80) {
     }
   }
   return rows.length ? rows : [""];
+}
+
+function compactToolCommand(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
 function shouldWordWrapToolRow(kind) {

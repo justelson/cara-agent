@@ -166,9 +166,6 @@ export function listTerminalThemes(options = {}) {
   for (const theme of loadThemeDirectory(options.root && path.join(options.root, "themes"), "global")) {
     themes.set(theme.name, theme);
   }
-  for (const theme of loadThemeDirectory(options.project && path.join(options.project, ".cara", "themes"), "legacy-project")) {
-    themes.set(theme.name, theme);
-  }
   for (const theme of loadThemeDirectory(options.project && path.join(options.project, ".zyra", "themes"), "project")) {
     themes.set(theme.name, theme);
   }
@@ -223,7 +220,7 @@ function resolveBuiltIn(name) {
 }
 
 function loadUiCatalogThemes() {
-  const file = path.join(ROOT, "apps", "cara-ui", "src", "renderer", "src", "lib", "settings-theme-catalog.ts");
+  const file = path.join(ROOT, "apps", "zyra-ui", "src", "renderer", "src", "lib", "settings-theme-catalog.ts");
   if (!existsSync(file)) return [];
   try {
     const text = readFileSync(file, "utf8");

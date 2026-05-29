@@ -91,15 +91,8 @@ export function createMemoryReadPath(deps) {
         lines.push("  No durable summary yet.");
       }
 
-      lines.push("", "Commands");
-      lines.push("  /memory search <query>  search source-backed memory");
-      lines.push("  /memory sources         list stage-1 memory sources");
-      lines.push("  /memory jobs            show stage-1 and phase-2 worker state");
-      lines.push("  /memory startup         scan old sessions and prepare stage-1 inputs");
-      lines.push("  /memory mode [mode]     show or set current thread memory mode");
-      lines.push("  /memory forget <id>     disable one memory source");
-      lines.push("  /memory reset           clear generated memory; keep ad-hoc notes");
-      lines.push("  /consolidate            extract and consolidate the current session");
+      lines.push("", "Control");
+      lines.push("  /memory toggles whether this chat is eligible for future memory logging.");
       return lines;
     },
 

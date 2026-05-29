@@ -41,6 +41,7 @@ export function renderStatusBox(status = {}, theme = fallbackTheme, terminalColu
     alignedField("Directory", formatHomePath(status.project), theme, valueWidth),
     alignedField("Profile", status.profile ?? "auto", theme, valueWidth),
     alignedField("Thinking", status.thinking ?? "off", theme, valueWidth),
+    alignedField("Web", formatWebStatus(status), theme, valueWidth),
     alignedField("Theme", status.terminalTheme ?? "default", theme, valueWidth),
     alignedField("Session", status.sessionId, theme, valueWidth),
     alignedField("Session file", formatHomePath(status.sessionFile), theme, valueWidth),
@@ -73,13 +74,10 @@ export function renderCommandsBox(theme = fallbackTheme, terminalColumns = 100) 
     commandRow("/start", "scan/orient to the project", theme, commandWidth),
     commandRow("/session", "show model, directory, context, and usage", theme, commandWidth),
     commandRow("/chat", "show current chat file, messages, tokens, and cost", theme, commandWidth),
-    commandRow("/memory", "overview of staged source-backed memory", theme, commandWidth),
-    commandRow("/memory search <q>", "search memory sources", theme, commandWidth),
-    commandRow("/memory sources", "list stage-1 memory sources", theme, commandWidth),
-    commandRow("/memory jobs", "show memory worker jobs", theme, commandWidth),
-    commandRow("/memory mode [mode]", "show or set current thread memory mode", theme, commandWidth),
-    commandRow("/memory reset", "clear generated memory, keep notes", theme, commandWidth),
-    commandRow("/consolidate", "extract and consolidate staged memory", theme, commandWidth),
+    commandRow("/memory", "toggle memory logging for this chat", theme, commandWidth),
+    commandRow("/web", "choose web tools", theme, commandWidth),
+    commandRow("/websearch [on|off]", "toggle web search", theme, commandWidth),
+    commandRow("/webfetch [on|off]", "toggle page fetching", theme, commandWidth),
     "",
     commandRow("/new", "fresh chat, no previous messages", theme, commandWidth),
     commandRow("/reload", "reload Zyra from disk and resume this chat", theme, commandWidth),
@@ -100,6 +98,7 @@ export function renderCommandsBox(theme = fallbackTheme, terminalColumns = 100) 
     commandRow("/<custom>", "run .zyra/commands/<custom>.md", theme, commandWidth),
     "",
     commandRow("zyra auth", "show account, plan, and Codex limits", theme, commandWidth),
+    commandRow("zyra onboarding", "replay first-run setup", theme, commandWidth),
     commandRow("zyra --update", "update this Zyra install from GitHub", theme, commandWidth),
     commandRow("zyra -p \"...\"", "print one answer and exit", theme, commandWidth),
   ];
@@ -204,6 +203,13 @@ function renderTokenSummary(usage = {}) {
   const input = formatNumber(usage.input);
   const output = formatNumber(usage.output);
   return `${total} total (${input} in / ${output} out)`;
+}
+
+function formatWebStatus(status = {}) {
+  if (status.webSearch && status.webFetch) return "all on";
+  if (!status.webSearch && !status.webFetch) return "off";
+  if (status.webSearch) return "search";
+  return "fetch";
 }
 
 function formatHomePath(value) {

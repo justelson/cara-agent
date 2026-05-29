@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
@@ -17,6 +17,12 @@ import {
 } from "./zyra-memory.mjs";
 import { expandFileMentions } from "./file-mentions.mjs";
 import { DEFAULT_TERMINAL_THEME, listTerminalThemes, resolveTerminalTheme } from "./terminal-theme.mjs";
+import {
+  createZyraWebFetchTool,
+  createZyraWebSearchTool,
+  ZYRA_WEB_FETCH_TOOL_NAME,
+  ZYRA_WEB_SEARCH_TOOL_NAME,
+} from "./web-search-tool.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ZYRA_THEME_CUSTOM_TYPE = "zyra.theme.v1";
@@ -25,31 +31,18 @@ const ZYRA_PROJECT_MEMORY_MARKER = "ZYRA_PROJECT_MEMORY";
 const ZYRA_LAYERED_MEMORY_MARKER = "ZYRA_LAYERED_MEMORY";
 const ZYRA_PROFILE_CUSTOM_TYPE = "zyra.profile.v1";
 const ZYRA_TERMINAL_THEME_CUSTOM_TYPE = "zyra.terminal-theme.v1";
+const ZYRA_WEB_SEARCH_CUSTOM_TYPE = "zyra.web-search.v1";
 const ZYRA_PROFILE_MARKER = "ZYRA_ACTIVE_PROFILE";
 const ZYRA_GUIDE_MARKER = "ZYRA_LEVEL_1_GUIDE";
 const ZYRA_DESKTOP_UI_MARKER = "ZYRA_DESKTOP_UI_SURFACE";
-const LEGACY_CUSTOM_TYPES = {
-  theme: "cara.theme.v1",
-  exit: "cara.exit.v1",
-  profile: "cara.profile.v1",
-  terminalTheme: "cara.terminal-theme.v1",
-};
-const LEGACY_MARKERS = {
-  guide: "CARA_LEVEL_1_GUIDE",
-  desktopUi: "CARA_DESKTOP_UI_SURFACE",
-  projectMemory: "CARA_PROJECT_MEMORY",
-  layeredMemory: "CARA_LAYERED_MEMORY",
-  profile: "CARA_ACTIVE_PROFILE",
-};
 const PROJECT_DATA_DIR = ".zyra";
-const LEGACY_PROJECT_DATA_DIR = ".cara";
 const PROJECT_PREFERENCES_FILE = "preferences.json";
 const commandCache = new Map();
 
 export const defaults = {
   piPackage: "@earendil-works/pi-coding-agent",
   root: ROOT,
-  project: path.resolve(process.env.ZYRA_CALLER_CWD ?? process.env.CARA_CALLER_CWD ?? process.cwd()),
+  project: path.resolve(process.env.ZYRA_CALLER_CWD ?? process.cwd()),
   prompt: path.join(ROOT, "prompts/zyra-workshop-guide.md"),
   inspectPrompt: path.join(ROOT, "prompts/inspect-project.md"),
   thinking: "medium",
@@ -67,13 +60,9 @@ export function getProjectDataDir(project = defaults.project) {
   return path.join(path.resolve(project), PROJECT_DATA_DIR);
 }
 
-export function getLegacyProjectDataDir(project = defaults.project) {
-  return path.join(path.resolve(project), LEGACY_PROJECT_DATA_DIR);
-}
-
 export function resolveZyraStartupPreferences(project = defaults.project, options = {}, preferences = readProjectPreferences(project)) {
   return {
-    terminalTheme: String(options.terminalTheme ?? process.env.ZYRA_TERMINAL_THEME ?? process.env.CARA_TERMINAL_THEME ?? "").trim()
+    terminalTheme: String(options.terminalTheme ?? process.env.ZYRA_TERMINAL_THEME ?? "").trim()
       || readProjectTerminalThemePreference(project, preferences)
       || undefined,
     profile: normalizeProfile(options.profile) ?? readProjectProfilePreference(project, preferences),
@@ -83,20 +72,21 @@ export function resolveZyraStartupPreferences(project = defaults.project, option
     model: normalizeModelSelector(options.model)
       ?? readProjectModelPreference(project, preferences)
       ?? defaults.model,
+    webSearch: normalizeWebSearchPreference(options.webSearch)
+      ?? normalizeWebSearchPreference(process.env.ZYRA_WEBSEARCH)
+      ?? normalizeWebSearchPreference(process.env.ZYRA_WEB_SEARCH)
+      ?? readProjectWebSearchPreference(project, preferences)
+      ?? true,
+    webFetch: normalizeWebSearchPreference(options.webFetch)
+      ?? normalizeWebSearchPreference(process.env.ZYRA_WEBFETCH)
+      ?? normalizeWebSearchPreference(process.env.ZYRA_WEB_FETCH)
+      ?? readProjectWebFetchPreference(project, preferences)
+      ?? true,
   };
 }
 
 function resolveProjectDataDir(project) {
-  const primary = getProjectDataDir(project);
-  const legacy = getLegacyProjectDataDir(project);
-  return !existsSync(primary) && existsSync(path.join(legacy, "sessions")) ? legacy : primary;
-}
-
-function migrateLegacyProjectData(project) {
-  const primary = getProjectDataDir(project);
-  const legacy = getLegacyProjectDataDir(project);
-  if (existsSync(primary) || !existsSync(legacy)) return;
-  cpSync(legacy, primary, { recursive: true });
+  return getProjectDataDir(project);
 }
 
 let piPackagePromise;
@@ -199,7 +189,7 @@ function upsertSystemPromptBlock(session, marker, body, legacyMarkers = []) {
 }
 
 function injectZyraGuide(session, guide) {
-  upsertSystemPromptBlock(session, ZYRA_GUIDE_MARKER, guide, [LEGACY_MARKERS.guide]);
+  upsertSystemPromptBlock(session, ZYRA_GUIDE_MARKER, guide);
 }
 
 function injectSurfaceGuide(session, surface) {
@@ -213,12 +203,54 @@ function injectSurfaceGuide(session, surface) {
     "Keep paragraphs short. Use bullets only when they help scan real work.",
     "Never emit serialization placeholders such as [Circular], [object Object], or raw event/protocol text.",
   ].join("\n");
-  upsertSystemPromptBlock(session, marker, guide, [LEGACY_MARKERS.desktopUi]);
+  upsertSystemPromptBlock(session, marker, guide);
+}
+
+function refreshZyraPromptContext(runtime, options = {}) {
+  injectZyraGuide(runtime.session, readPrompt(defaults.prompt));
+  injectSurfaceGuide(runtime.session, runtime.surface);
+  ensureZyraMemory(defaults.root);
+  if (options.runMemoryStartup) {
+    runtime.memoryStartup = runZyraMemoryStartup(defaults.root, runtime, { maxClaimed: 2 });
+  }
+  injectLayeredMemory(runtime.session, defaults.root);
+  injectActiveProfile(runtime.session, runtime.profile ?? detectDefaultProfile());
+  runtime.projectMemory = injectProjectMemory(runtime.session, runtime.project);
+}
+
+function applyWebToolState(session, options = {}) {
+  if (typeof session?.getActiveToolNames !== "function" || typeof session?.setActiveToolsByName !== "function") {
+    return false;
+  }
+  const toolStates = new Map([
+    [ZYRA_WEB_SEARCH_TOOL_NAME, Boolean(options.webSearch)],
+    [ZYRA_WEB_FETCH_TOOL_NAME, Boolean(options.webFetch)],
+  ]);
+  const activeTools = [...new Set(session.getActiveToolNames())];
+  let changed = false;
+  let nextTools = activeTools;
+
+  for (const [name, enabled] of toolStates) {
+    const active = nextTools.includes(name);
+    if (enabled && !active) {
+      nextTools = [...nextTools, name];
+      changed = true;
+    } else if (!enabled && active) {
+      nextTools = nextTools.filter((toolName) => toolName !== name);
+      changed = true;
+    }
+  }
+
+  if (changed) session.setActiveToolsByName(nextTools);
+  return changed;
+}
+
+function isToolActive(session, name) {
+  return Boolean(session?.getActiveToolNames?.().includes(name));
 }
 
 export async function createZyraSession(options = {}) {
   const project = path.resolve(options.project ?? defaults.project);
-  migrateLegacyProjectData(project);
   const sessions = path.resolve(options.sessions ?? getProjectSessionsDir(project));
   const preferences = readProjectPreferences(project);
   const startupPreferences = resolveZyraStartupPreferences(project, options, preferences);
@@ -250,11 +282,11 @@ export async function createZyraSession(options = {}) {
     project,
     preferences,
     persist: !options.noSession,
-    requested: options.terminalTheme ?? process.env.ZYRA_TERMINAL_THEME ?? process.env.CARA_TERMINAL_THEME,
+    requested: options.terminalTheme ?? process.env.ZYRA_TERMINAL_THEME,
   });
   const profile = ensureSessionProfile(sessionManager, { project, preferences, persist: !options.noSession, requested: options.profile });
   const startupResources = await createZyraResourceLoader(project, {
-    enablePiExtensions: options.enablePiExtensions || process.env.ZYRA_ENABLE_PI_EXTENSIONS === "1" || process.env.CARA_ENABLE_PI_EXTENSIONS === "1",
+    enablePiExtensions: options.enablePiExtensions || process.env.ZYRA_ENABLE_PI_EXTENSIONS === "1",
   });
 
   const result = await createAgentSession({
@@ -262,8 +294,11 @@ export async function createZyraSession(options = {}) {
     sessionManager,
     thinkingLevel: thinking,
     sessionStartEvent: { type: "session_start", reason: options.sessionMode === "continue" || options.session ? "resume" : "new" },
+    customTools: [createZyraWebSearchTool(), createZyraWebFetchTool()],
     ...startupResources,
   });
+
+  applyWebToolState(result.session, startupPreferences);
 
   if (!options.skipGuide) {
     injectZyraGuide(result.session, readPrompt(defaults.prompt));
@@ -289,7 +324,14 @@ export async function createZyraSession(options = {}) {
   if (!selectedModel && startupPreferences.model !== defaults.model) {
     selectedModel = await preferDefaultModel(result.session, defaults.model);
   }
-  persistExplicitStartupPreferences(project, options, { thinking, terminalTheme, profile, model: selectedModel });
+  persistExplicitStartupPreferences(project, options, {
+    thinking,
+    terminalTheme,
+    profile,
+    model: selectedModel,
+    webSearch: startupPreferences.webSearch,
+    webFetch: startupPreferences.webFetch,
+  });
 
   return {
     session: result.session,
@@ -303,6 +345,8 @@ export async function createZyraSession(options = {}) {
     projectMemory,
     memoryStartup,
     thinking,
+    webSearch: startupPreferences.webSearch,
+    webFetch: startupPreferences.webFetch,
     modelFallbackMessage: result.modelFallbackMessage,
   };
 }
@@ -801,7 +845,7 @@ function readSessionTheme(sessionManager) {
   const entries = typeof sessionManager.getEntries === "function" ? sessionManager.getEntries() : [];
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i];
-    if (entry?.type === "custom" && [ZYRA_THEME_CUSTOM_TYPE, LEGACY_CUSTOM_TYPES.theme].includes(entry.customType)) {
+    if (entry?.type === "custom" && entry.customType === ZYRA_THEME_CUSTOM_TYPE) {
       return normalizeOpeningTheme(entry.data);
     }
   }
@@ -827,7 +871,7 @@ function readSessionTerminalTheme(sessionManager) {
   const entries = typeof sessionManager.getEntries === "function" ? sessionManager.getEntries() : [];
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i];
-    if (entry?.type === "custom" && [ZYRA_TERMINAL_THEME_CUSTOM_TYPE, LEGACY_CUSTOM_TYPES.terminalTheme].includes(entry.customType)) {
+    if (entry?.type === "custom" && entry.customType === ZYRA_TERMINAL_THEME_CUSTOM_TYPE) {
       return String(entry.data?.name ?? "").trim() || undefined;
     }
   }
@@ -854,7 +898,7 @@ function readSessionProfile(sessionManager) {
   const entries = typeof sessionManager.getEntries === "function" ? sessionManager.getEntries() : [];
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i];
-    if (entry?.type === "custom" && [ZYRA_PROFILE_CUSTOM_TYPE, LEGACY_CUSTOM_TYPES.profile].includes(entry.customType)) {
+    if (entry?.type === "custom" && entry.customType === ZYRA_PROFILE_CUSTOM_TYPE) {
       return normalizeProfile(entry.data?.profile);
     }
   }
@@ -862,7 +906,7 @@ function readSessionProfile(sessionManager) {
 }
 
 function detectDefaultProfile() {
-  const envProfile = normalizeProfile(process.env.ZYRA_PROFILE ?? process.env.CARA_PROFILE);
+  const envProfile = normalizeProfile(process.env.ZYRA_PROFILE);
   if (envProfile && envProfile !== "auto") return envProfile;
   const username = String(os.userInfo().username ?? process.env.USERNAME ?? process.env.USER ?? "").toLowerCase();
   const homeName = path.basename(os.homedir() || "").toLowerCase();
@@ -883,6 +927,15 @@ function normalizeThinkingPreference(value) {
 
 function normalizeModelSelector(value) {
   return String(value ?? "").trim() || undefined;
+}
+
+function normalizeWebSearchPreference(value) {
+  if (typeof value === "boolean") return value;
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) return undefined;
+  if (["1", "true", "yes", "on", "enable", "enabled"].includes(text)) return true;
+  if (["0", "false", "no", "off", "disable", "disabled"].includes(text)) return false;
+  return undefined;
 }
 
 async function preferDefaultModel(session, selector) {
@@ -1073,6 +1126,8 @@ export function describeRuntime(runtime) {
     terminalTheme: runtime.terminalTheme?.name ?? DEFAULT_TERMINAL_THEME,
     themes: listZyraThemes(runtime),
     thinking: runtime.session.thinkingLevel,
+    webSearch: runtime.webSearch ?? isToolActive(runtime.session, ZYRA_WEB_SEARCH_TOOL_NAME),
+    webFetch: runtime.webFetch ?? isToolActive(runtime.session, ZYRA_WEB_FETCH_TOOL_NAME),
     model: model ? `${model.provider}/${model.id}` : "none",
   };
 }
@@ -1099,6 +1154,45 @@ export function setProfile(runtime, profile) {
     });
   }
   return resolved;
+}
+
+export function setWebSearch(runtime, value) {
+  const normalized = normalizeWebSearchPreference(value);
+  if (value !== undefined && normalized === undefined) {
+    throw new Error("Web search must be on or off.");
+  }
+  const next = value === undefined ? !Boolean(runtime.webSearch ?? isToolActive(runtime.session, ZYRA_WEB_SEARCH_TOOL_NAME)) : normalized;
+  return setWebTools(runtime, { webSearch: next, webFetch: runtime.webFetch ?? isToolActive(runtime.session, ZYRA_WEB_FETCH_TOOL_NAME) }).webSearch;
+}
+
+export function setWebFetch(runtime, value) {
+  const normalized = normalizeWebSearchPreference(value);
+  if (value !== undefined && normalized === undefined) {
+    throw new Error("Web fetch must be on or off.");
+  }
+  const next = value === undefined ? !Boolean(runtime.webFetch ?? isToolActive(runtime.session, ZYRA_WEB_FETCH_TOOL_NAME)) : normalized;
+  return setWebTools(runtime, { webSearch: runtime.webSearch ?? isToolActive(runtime.session, ZYRA_WEB_SEARCH_TOOL_NAME), webFetch: next }).webFetch;
+}
+
+export function setWebTools(runtime, options = {}) {
+  const webSearch = normalizeWebSearchPreference(options.webSearch) ?? false;
+  const webFetch = normalizeWebSearchPreference(options.webFetch) ?? false;
+  runtime.webSearch = webSearch;
+  runtime.webFetch = webFetch;
+  writeProjectWebSearchPreference(runtime.project, webSearch);
+  writeProjectWebFetchPreference(runtime.project, webFetch);
+  applyWebToolState(runtime.session, { webSearch, webFetch });
+  refreshZyraPromptContext(runtime);
+
+  const sessionManager = runtime.session.sessionManager;
+  if (typeof sessionManager.appendCustomEntry === "function" && sessionManager.getSessionFile?.()) {
+    sessionManager.appendCustomEntry(ZYRA_WEB_SEARCH_CUSTOM_TYPE, {
+      webSearch,
+      webFetch,
+      savedAt: new Date().toISOString(),
+    });
+  }
+  return { webSearch, webFetch };
 }
 
 export function listZyraThemes(runtime) {
@@ -1183,6 +1277,38 @@ function writeProjectModelPreference(project, model) {
   });
 }
 
+function readProjectWebSearchPreference(project, preferences = readProjectPreferences(project)) {
+  void project;
+  return normalizeWebSearchPreference(preferences.webSearch);
+}
+
+function readProjectWebFetchPreference(project, preferences = readProjectPreferences(project)) {
+  void project;
+  return normalizeWebSearchPreference(preferences.webFetch);
+}
+
+function writeProjectWebSearchPreference(project, enabled) {
+  const next = normalizeWebSearchPreference(enabled);
+  if (!project || next === undefined) return;
+  const preferences = readProjectPreferences(project);
+  writeProjectPreferences(project, {
+    ...preferences,
+    webSearch: next,
+    webSearchUpdatedAt: new Date().toISOString(),
+  });
+}
+
+function writeProjectWebFetchPreference(project, enabled) {
+  const next = normalizeWebSearchPreference(enabled);
+  if (!project || next === undefined) return;
+  const preferences = readProjectPreferences(project);
+  writeProjectPreferences(project, {
+    ...preferences,
+    webFetch: next,
+    webFetchUpdatedAt: new Date().toISOString(),
+  });
+}
+
 function modelSelector(model) {
   if (!model?.provider || !model?.id) return undefined;
   return `${model.provider}/${model.id}`;
@@ -1201,6 +1327,12 @@ function persistExplicitStartupPreferences(project, options = {}, resolved = {})
   }
   if (options.model && resolved.model) {
     writeProjectModelPreference(project, resolved.model);
+  }
+  if (options.webSearch !== undefined) {
+    writeProjectWebSearchPreference(project, resolved.webSearch);
+  }
+  if (options.webFetch !== undefined) {
+    writeProjectWebFetchPreference(project, resolved.webFetch);
   }
 }
 
@@ -1316,14 +1448,12 @@ export async function reloadZyraRuntime(runtime) {
 
   await runtime.session.reload?.();
   reloadCustomCommands(runtime);
+  applyWebToolState(runtime.session, {
+    webSearch: runtime.webSearch ?? true,
+    webFetch: runtime.webFetch ?? true,
+  });
 
-  injectZyraGuide(runtime.session, readPrompt(defaults.prompt));
-  injectSurfaceGuide(runtime.session, runtime.surface);
-  ensureZyraMemory(defaults.root);
-  runtime.memoryStartup = runZyraMemoryStartup(defaults.root, runtime, { maxClaimed: 2 });
-  injectLayeredMemory(runtime.session, defaults.root);
-  injectActiveProfile(runtime.session, runtime.profile ?? detectDefaultProfile());
-  runtime.projectMemory = injectProjectMemory(runtime.session, runtime.project);
+  refreshZyraPromptContext(runtime, { runMemoryStartup: true });
   runtime.terminalTheme = resolveTerminalTheme(runtime.terminalTheme?.name ?? DEFAULT_TERMINAL_THEME, {
     root: defaults.root,
     project: runtime.project,
@@ -1490,7 +1620,7 @@ function injectProjectMemory(session, project) {
   }
   if (!sections.length) return [];
 
-  upsertSystemPromptBlock(session, ZYRA_PROJECT_MEMORY_MARKER, sections.join("\n\n---\n\n"), [LEGACY_MARKERS.projectMemory]);
+  upsertSystemPromptBlock(session, ZYRA_PROJECT_MEMORY_MARKER, sections.join("\n\n---\n\n"));
   return files.map((file) => formatRelative(project, file));
 }
 
@@ -1499,7 +1629,7 @@ function injectLayeredMemory(session, root, query = "") {
   if (!memory.prompt) return;
   session._zyraMemoryContext = memory;
   session._zyraMemoryCitation = memory.citation;
-  upsertSystemPromptBlock(session, ZYRA_LAYERED_MEMORY_MARKER, memory.prompt, [LEGACY_MARKERS.layeredMemory]);
+  upsertSystemPromptBlock(session, ZYRA_LAYERED_MEMORY_MARKER, memory.prompt);
 }
 
 function injectActiveProfile(session, profile) {
@@ -1508,7 +1638,7 @@ function injectActiveProfile(session, profile) {
     profile === "elson"
       ? "The active operator is Elson. Treat requests as builder/testing/product work for Zyra unless context clearly says Cara is using it. Keep the same warmth and natural voice; use this only to understand that the tool is being built, tested, debugged, or shaped."
       : "The active operator is Cara. Treat requests as a person using the tool to learn, code, ask, explore, or be accompanied. Keep the same warmth and natural voice; use this only to avoid assuming builder/admin intent.";
-  upsertSystemPromptBlock(session, ZYRA_PROFILE_MARKER, `Profile: ${label}\n${mode}`, [LEGACY_MARKERS.profile]);
+  upsertSystemPromptBlock(session, ZYRA_PROFILE_MARKER, `Profile: ${label}\n${mode}`);
 }
 
 function findProjectMemoryFiles(project) {
@@ -1527,7 +1657,6 @@ function findProjectMemoryFiles(project) {
 function getCustomCommandDirs(runtime) {
   return [
     path.join(defaults.root, "commands"),
-    path.join(runtime.project, LEGACY_PROJECT_DATA_DIR, "commands"),
     path.join(runtime.project, PROJECT_DATA_DIR, "commands"),
   ];
 }
@@ -1555,20 +1684,3 @@ function formatRelative(base, file) {
   const relative = path.relative(base, file);
   return relative && !relative.startsWith("..") ? relative : file;
 }
-
-export const createCaraSession = createZyraSession;
-export const listCaraSessions = listZyraSessions;
-export const loginCaraAuth = loginZyraAuth;
-export const logoutCaraAuth = logoutZyraAuth;
-export const getCaraAuthStatus = getZyraAuthStatus;
-export const buildCaraAuthAccountStatus = buildZyraAuthAccountStatus;
-export const formatCaraAuthAccountStatus = formatZyraAuthAccountStatus;
-export const warmupCaraRuntime = warmupZyraRuntime;
-export const resolveCaraSessionPath = resolveZyraSessionPath;
-export const runCaraPrompt = runZyraPrompt;
-export const runCaraPrintPrompt = runZyraPrintPrompt;
-export const listCaraThemes = listZyraThemes;
-export const setCaraTheme = setZyraTheme;
-export const buildCaraConsolidationPrompt = buildZyraConsolidationPrompt;
-export const reloadCaraRuntime = reloadZyraRuntime;
-export const saveCaraExitSummary = saveZyraExitSummary;

@@ -60,5 +60,5 @@ echo "Checking install..."
 zyra doctor
 
 echo ""
-echo "Zyra is installed. Run: zyra"
-echo "Legacy handoff: cara still works as an alias for now."
+echo "Zyra is installed."
+echo "Open a new terminal and run: zyra"

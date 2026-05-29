@@ -724,8 +724,9 @@ function runOverviewRegression() {
     const overview = buildMemoryOverview(root).join("\n");
     assert.match(overview, /Zyra memory/);
     assert.match(overview, /Stage outputs:/);
-    assert.match(overview, /\/memory search <query>/);
-    assert.match(overview, /\/memory jobs/);
+    assert.match(overview, /\/memory toggles whether this chat is eligible for future memory logging/);
+    assert.doesNotMatch(overview, /\/memory search <query>/);
+    assert.doesNotMatch(overview, /\/memory jobs/);
   });
 }
 

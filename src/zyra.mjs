@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { copyFileSync } from "node:fs";
 import os from "node:os";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import {
   buildInspectPrompt,
@@ -23,15 +23,20 @@ import {
   startZyraMemoryBackgroundStartup,
   logoutZyraAuth,
   setZyraTheme,
+  setWebFetch,
+  setWebSearch,
+  setWebTools,
   setModel,
   setProfile,
   setThinking,
 } from "./zyra-sdk.mjs";
 import { createZyraUi } from "./zyra-ui.mjs";
+import { runOnboarding, shouldRunOnboarding } from "./onboarding.mjs";
 import { buildProjectStartPrompt } from "./project-start.mjs";
 import { selectSession } from "./session-picker.mjs";
 import { applySlashSuggestion, getSlashSuggestions } from "./slash-suggestions.mjs";
 import { renderStatusLine } from "./status-line.mjs";
+import { normalizeWebToolsMode, selectWebTools } from "./web-tools-picker.mjs";
 
 function parse(argv) {
   const args = [...argv];
@@ -47,9 +52,14 @@ function parse(argv) {
   let thinking = "";
   let profile = "";
   let terminalTheme = "";
+  let webSearch;
+  let webFetch;
+  let webMenu = false;
+  let forceOnboarding = false;
+  let skipOnboarding = false;
 
   if (args[0] === "--help" || args[0] === "-h") {
-    return { command: args[0], project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, profile, terminalTheme };
+    return { command: args[0], project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, profile, terminalTheme, webSearch, webFetch, webMenu, forceOnboarding, skipOnboarding };
   }
 
   if (args[0] && !args[0].startsWith("-")) {
@@ -73,6 +83,27 @@ function parse(argv) {
     } else if (arg === "--theme" && args[i + 1]) {
       terminalTheme = args[i + 1];
       i += 1;
+    } else if (arg === "--websearch" || arg === "--web-search") {
+      webSearch = true;
+    } else if (arg === "--no-websearch" || arg === "--no-web-search") {
+      webSearch = false;
+    } else if (arg === "--webfetch" || arg === "--web-fetch") {
+      webFetch = true;
+    } else if (arg === "--no-webfetch" || arg === "--no-web-fetch") {
+      webFetch = false;
+    } else if (arg === "--web") {
+      const mode = normalizeWebToolsMode(args[i + 1]);
+      if (mode) {
+        webSearch = mode.webSearch;
+        webFetch = mode.webFetch;
+        i += 1;
+      } else {
+        webMenu = true;
+      }
+    } else if (arg === "--onboarding") {
+      forceOnboarding = true;
+    } else if (arg === "--no-onboarding") {
+      skipOnboarding = true;
     } else if ((arg === "--continue" || arg === "-c")) {
       sessionMode = "continue";
     } else if (arg === "--session" && args[i + 1]) {
@@ -97,7 +128,7 @@ function parse(argv) {
 
   if (command === "here") {
     command = "chat";
-    project = process.env.ZYRA_CALLER_CWD ?? process.env.CARA_CALLER_CWD ?? process.cwd();
+    project = process.env.ZYRA_CALLER_CWD ?? process.cwd();
   }
   if (command === "inspect") {
     prompt = buildInspectPrompt();
@@ -119,10 +150,14 @@ function parse(argv) {
     command = "chat";
     sessionMode = "new";
   }
+  if (command === "onboarding" || command === "onboard") {
+    command = "onboarding";
+    forceOnboarding = true;
+  }
   if (command === "ask" && !prompt) {
     throw new Error('Usage: zyra ask "your question" or zyra -p "your question"');
   }
-  if (!["chat", "ask", "inspect", "doctor", "sessions", "login", "logout", "auth", "account", "codexusage", "update", "help", "--help", "-h"].includes(command)) {
+  if (!["chat", "ask", "inspect", "doctor", "sessions", "login", "logout", "auth", "account", "codexusage", "update", "onboarding", "help", "--help", "-h"].includes(command)) {
     prompt = command + (prompt ? ` ${prompt}` : "");
     command = "ask";
   }
@@ -130,7 +165,7 @@ function parse(argv) {
     throw new Error('Usage: zyra -p "your question"');
   }
 
-  return { command, project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, profile, terminalTheme };
+  return { command, project, prompt, sessionMode, session, noSession, pickSession, printMode, model, thinking, profile, terminalTheme, webSearch, webFetch, webMenu, forceOnboarding, skipOnboarding };
 }
 
 function runUpdate() {
@@ -199,6 +234,26 @@ async function main() {
     runUpdate();
     return;
   }
+  let onboardingResult;
+  if (parsed.command === "onboarding") {
+    onboardingResult = await runOnboarding({
+      root: defaults.root,
+      project: parsed.project,
+      currentTheme: parsed.terminalTheme,
+      webSearch: parsed.webSearch,
+      webFetch: parsed.webFetch,
+    });
+    if (!onboardingResult?.completed) return;
+    if (onboardingResult.terminalTheme) parsed.terminalTheme = onboardingResult.terminalTheme;
+    if (onboardingResult.webSearch !== undefined) parsed.webSearch = onboardingResult.webSearch;
+    if (onboardingResult.webFetch !== undefined) parsed.webFetch = onboardingResult.webFetch;
+    parsed.command = "chat";
+    parsed.forceOnboarding = false;
+    parsed.sessionMode = "new";
+    parsed.session = "";
+    parsed.noSession = false;
+    ui = createZyraUi({ terminalTheme: parsed.terminalTheme });
+  }
   if (parsed.command === "login") {
     const provider = parsed.prompt || "openai-codex";
     console.log(`Logging in to ${provider} using Pi auth...`);
@@ -229,6 +284,34 @@ async function main() {
     parsed.session = selected;
   }
 
+  if (parsed.webMenu) {
+    const selected = await selectWebTools({
+      webSearch: parsed.webSearch ?? true,
+      webFetch: parsed.webFetch ?? true,
+    });
+    if (selected) {
+      parsed.webSearch = selected.webSearch;
+      parsed.webFetch = selected.webFetch;
+    }
+  }
+
+  if (shouldShowStartupRecommendations(parsed) && shouldRunOnboarding({
+    root: defaults.root,
+    force: parsed.forceOnboarding,
+    skip: parsed.skipOnboarding,
+  })) {
+    onboardingResult = await runOnboarding({
+      root: defaults.root,
+      project: parsed.project,
+      currentTheme: parsed.terminalTheme,
+      webSearch: parsed.webSearch,
+      webFetch: parsed.webFetch,
+    });
+    if (onboardingResult?.terminalTheme) parsed.terminalTheme = onboardingResult.terminalTheme;
+    if (onboardingResult?.webSearch !== undefined) parsed.webSearch = onboardingResult.webSearch;
+    if (onboardingResult?.webFetch !== undefined) parsed.webFetch = onboardingResult.webFetch;
+  }
+
   const runtimeOptions = {
     project: parsed.project,
     sessionMode: parsed.sessionMode,
@@ -238,6 +321,8 @@ async function main() {
     thinking: parsed.thinking || undefined,
     profile: parsed.profile || undefined,
     terminalTheme: parsed.terminalTheme || undefined,
+    webSearch: parsed.webSearch,
+    webFetch: parsed.webFetch,
   };
 
   if (parsed.printMode || parsed.prompt) {
@@ -312,6 +397,7 @@ async function main() {
     if (slashResult) {
       restartMode = slashResult === "restart" ? slashResult : "";
       exitRequested = Boolean(restartMode) || isExitInput(text);
+      if (restartMode) return "restart";
       if (!exitRequested) {
         await drainPendingMidRunInputs();
       }
@@ -378,10 +464,11 @@ async function main() {
       }
     },
     statusLine: (width, state) => renderStatusLine(runtime, width, state),
+    starterRecommendations: onboardingResult?.starterPrompt ? [{ prompt: onboardingResult.starterPrompt }] : [],
     theme: runtime.terminalTheme,
   });
   if (restartMode) {
-    restartZyraProcess(runtime, { mode: restartMode });
+    await restartZyraProcess(runtime, { mode: restartMode });
     return;
   }
   if (exitRequested) {
@@ -429,63 +516,54 @@ async function handleSlash(runtime, ui, input, controls = {}) {
   }
   if (command === "/memory") {
     const memory = createZyraMemoryController(runtime);
-    const [memoryActionRaw, ...memoryRest] = rest;
-    const memoryAction = memoryActionRaw?.toLowerCase();
-    const memoryArg = memoryRest.join(" ").trim();
-    if (!memoryAction) {
-      ui.memory(describeRuntime(runtime));
+    const action = arg.trim().toLowerCase();
+    if (action && !["on", "off", "enable", "enabled", "disable", "disabled"].includes(action)) {
+      ui.info("Usage: /memory, /memory on, /memory off");
       return true;
     }
-    if (memoryAction === "search") {
-      const query = memoryArg || arg.replace(/^search\s*/i, "").trim();
-      if (!query) ui.info("Usage: /memory search <query>");
-      else ui.block(memory.search(query));
+
+    const current = memory.threadMode();
+    const nextMode = ["on", "enable", "enabled"].includes(action)
+      ? "enabled"
+      : ["off", "disable", "disabled"].includes(action)
+        ? "disabled"
+        : current.mode === "enabled" ? "disabled" : "enabled";
+    const result = memory.setThreadMode(nextMode);
+    ui.info(`Memory ${result.mode === "enabled" ? "on" : "off"} for this chat.`);
+    return true;
+  }
+  if (command === "/web") {
+    const mode = normalizeWebToolsMode(arg);
+    const selected = mode ?? await ui.selectWebTools?.({
+      webSearch: runtime.webSearch,
+      webFetch: runtime.webFetch,
+    });
+    if (!selected) {
+      ui.info("Web tools unchanged.");
       return true;
     }
-    if (memoryAction === "sources") {
-      ui.block(memory.sources());
+    const next = setWebTools(runtime, selected);
+    ui.info(formatWebToolsStatus(next));
+    return true;
+  }
+  if (command === "/websearch" || command === "/web-search") {
+    const action = arg.trim().toLowerCase();
+    if (action && !["on", "off", "enable", "enabled", "disable", "disabled"].includes(action)) {
+      ui.info("Usage: /websearch, /websearch on, /websearch off");
       return true;
     }
-    if (memoryAction === "jobs") {
-      ui.block(memory.jobs());
+    const enabled = setWebSearch(runtime, action || undefined);
+    ui.info(`Web search ${enabled ? "on" : "off"}.`);
+    return true;
+  }
+  if (command === "/webfetch" || command === "/web-fetch") {
+    const action = arg.trim().toLowerCase();
+    if (action && !["on", "off", "enable", "enabled", "disable", "disabled"].includes(action)) {
+      ui.info("Usage: /webfetch, /webfetch on, /webfetch off");
       return true;
     }
-    if (memoryAction === "startup") {
-      ui.info(memory.startup().message);
-      return true;
-    }
-    if (memoryAction === "mode") {
-      if (!memoryArg) {
-        const { threadId, mode } = memory.threadMode();
-        ui.info(`Memory mode for ${threadId}: ${mode}`);
-      } else {
-        ui.info(memory.setThreadMode(memoryArg).message);
-      }
-      return true;
-    }
-    if (memoryAction === "enable" || memoryAction === "disable") {
-      ui.info(memory.setThreadMode(memoryAction === "enable" ? "enabled" : "disabled").message);
-      return true;
-    }
-    if (memoryAction === "forget") {
-      const threadId = memoryArg;
-      if (!threadId) {
-        ui.info("Usage: /memory forget <source-id>");
-      } else {
-        ui.info(memory.forgetSource(threadId).message);
-      }
-      return true;
-    }
-    if (memoryAction === "rebuild") {
-      ui.info(memory.rebuild().message);
-      return true;
-    }
-    if (memoryAction === "reset" || memoryAction === "drop") {
-      const preserveAdHoc = !memoryRest.some((item) => ["--all", "--include-ad-hoc"].includes(item.toLowerCase()));
-      ui.info(memory.reset({ preserveAdHoc }).message);
-      return true;
-    }
-    ui.info("Usage: /memory, /memory search <query>, /memory sources, /memory jobs, /memory startup, /memory mode [enabled|disabled|polluted], /memory forget <source-id>, /memory reset");
+    const enabled = setWebFetch(runtime, action || undefined);
+    ui.info(`Web fetch ${enabled ? "on" : "off"}.`);
     return true;
   }
   if (command === "/auth" || command === "/account") {
@@ -516,7 +594,7 @@ async function handleSlash(runtime, ui, input, controls = {}) {
     ui.account(await buildZyraAuthAccountStatus(provider));
     return true;
   }
-  if (command === "/reload") {
+  if (command === "/reload" || command === "/realod") {
     if (arg.trim() === "--soft") {
       ui.info("Reloading commands, themes, prompt, and memory without restarting...");
       const result = await reloadZyraRuntime(runtime);
@@ -524,7 +602,7 @@ async function handleSlash(runtime, ui, input, controls = {}) {
       ui.info(`Reloaded resources: ${result.commands} command${result.commands === 1 ? "" : "s"}, ${result.themes} theme${result.themes === 1 ? "" : "s"}.`);
       return true;
     }
-    ui.info("Reloading Zyra from disk and resuming this chat...");
+    ui.restartTransition("reloading zyra");
     return "restart";
   }
   if (command === "/new") {
@@ -580,7 +658,7 @@ async function handleSlash(runtime, ui, input, controls = {}) {
   return true;
 }
 
-function restartZyraProcess(runtime, options = {}) {
+async function restartZyraProcess(runtime, options = {}) {
   const sessionManager = runtime.session.sessionManager;
   const selector = sessionManager.getSessionId?.() || sessionManager.getSessionFile?.();
   const args = [path.join(runtime.root, "bin", "zyra.mjs")];
@@ -596,16 +674,24 @@ function restartZyraProcess(runtime, options = {}) {
   if (runtime.session.thinkingLevel) args.push("--thinking", runtime.session.thinkingLevel);
   if (runtime.terminalTheme?.name) args.push("--theme", runtime.terminalTheme.name);
   if (runtime.session.model) args.push("--model", `${runtime.session.model.provider}/${runtime.session.model.id}`);
+  args.push(runtime.webSearch ? "--websearch" : "--no-websearch");
+  args.push(runtime.webFetch ? "--webfetch" : "--no-webfetch");
 
   runtime.session.dispose();
-  const result = spawnSync(process.execPath, args, {
+  prepareStdinForRestart();
+  await sleep(35);
+  const child = spawn(process.execPath, args, {
     stdio: "inherit",
     cwd: runtime.root,
     env: {
       ...process.env,
       ZYRA_CALLER_CWD: runtime.project,
-      CARA_CALLER_CWD: runtime.project,
     },
+  });
+
+  const result = await new Promise((resolve) => {
+    child.once("error", (error) => resolve({ error, status: 1 }));
+    child.once("exit", (status, signal) => resolve({ status, signal }));
   });
 
   if (result.error) {
@@ -613,6 +699,29 @@ function restartZyraProcess(runtime, options = {}) {
     process.exit(1);
   }
   process.exit(result.status ?? 0);
+}
+
+function prepareStdinForRestart() {
+  if (!process.stdin?.isTTY) return;
+  try {
+    process.stdin.setRawMode?.(false);
+  } catch {
+    // Best-effort terminal handoff before spawning the replacement process.
+  }
+  process.stdin.removeAllListeners?.("keypress");
+  process.stdin.removeAllListeners?.("data");
+  process.stdin.pause?.();
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatWebToolsStatus(status = {}) {
+  if (status.webSearch && status.webFetch) return "Web tools: all on.";
+  if (!status.webSearch && !status.webFetch) return "Web tools: off.";
+  if (status.webSearch) return "Web tools: search only.";
+  return "Web tools: fetch only.";
 }
 
 function isExitInput(input) {

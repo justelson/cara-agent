@@ -111,7 +111,7 @@ export function createMemoryWorkspacePath(deps) {
         cleared.push(path.relative(paths.root, paths.adHocNotes).replaceAll("\\", "/"));
       }
 
-      for (const file of deps.legacyLayerFiles) {
+      for (const file of deps.layerFiles) {
         const target = path.join(paths.root, file);
         assertInsidePath(paths.root, target, "legacy memory reset");
         rmSync(target, { force: true });

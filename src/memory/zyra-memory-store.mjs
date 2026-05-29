@@ -25,7 +25,6 @@ import { createMemoryWorkspacePath } from "./zyra-memory-workspace.mjs";
 export { STATE_VERSION } from "./zyra-memory-state.mjs";
 
 export const MEMORY_DIR = ".zyra/memory";
-export const LEGACY_MEMORY_DIR = ".cara/memory";
 
 const STATE_FILE = "state.json";
 const SUMMARY_FILE = "memory_summary.md";
@@ -47,7 +46,7 @@ const DEFAULT_RETRY_REMAINING = 3;
 const DEFAULT_RETRY_DELAY_SECONDS = 15 * 60;
 const MAX_WORKSPACE_DIFF_BYTES = 4 * 1024 * 1024;
 const DEFAULT_RAW_MEMORIES = "# Raw Memories\n\nNo raw memories yet.\n";
-const LEGACY_LAYER_FILES = [
+const LAYER_FILES = [
   "cara-profile.md",
   "interaction-rhythm.md",
   "learning-map.md",
@@ -63,8 +62,8 @@ const DEFAULT_SUMMARY = [
   "## Zyra Memory",
   "",
   "- Retrieval-backed memory is installed, but no consolidated evidence has been promoted yet.",
-  "- Use `/consolidate` after meaningful sessions so Zyra can extract stage-1 memory and update the handbook.",
-  "- Use `/memory search <query>` before relying on older details.",
+  "- Zyra manages memory consolidation internally from eligible sessions.",
+  "- `/memory` only controls whether the current chat is eligible for future memory logging.",
   "",
 ].join("\n");
 
@@ -156,13 +155,12 @@ function memoryBootstrapPath() {
     upsertStage1OutputWithoutEnsure,
     stage1Metadata,
     memoryDir: MEMORY_DIR,
-    legacyMemoryDir: LEGACY_MEMORY_DIR,
     defaultSummary: DEFAULT_SUMMARY,
     defaultHandbook: DEFAULT_HANDBOOK,
     defaultRawMemories: DEFAULT_RAW_MEMORIES,
     memoryWorkspaceGitignore: MEMORY_WORKSPACE_GITIGNORE,
     adHocInstructions: AD_HOC_INSTRUCTIONS,
-    legacyLayerFiles: LEGACY_LAYER_FILES,
+    layerFiles: LAYER_FILES,
   });
 }
 
@@ -268,7 +266,7 @@ function memoryWorkspacePath() {
     defaultHandbook: DEFAULT_HANDBOOK,
     memoryWorkspaceGitignore: MEMORY_WORKSPACE_GITIGNORE,
     adHocInstructions: AD_HOC_INSTRUCTIONS,
-    legacyLayerFiles: LEGACY_LAYER_FILES,
+    layerFiles: LAYER_FILES,
     workspaceDiffFile: WORKSPACE_DIFF_FILE,
     maxWorkspaceDiffBytes: MAX_WORKSPACE_DIFF_BYTES,
     defaultPhase2LeaseSeconds: DEFAULT_PHASE2_LEASE_SECONDS,

@@ -2,6 +2,7 @@ import { stdout as output } from "node:process";
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import { ZyraComponentHost } from "./tui/component-host.mjs";
+import { selectWebTools } from "./web-tools-picker.mjs";
 import { UserMessageComponent, AssistantMessageComponent, ToolMessageComponent } from "./tui/components/message-components.mjs";
 import {
   accountPanel,
@@ -18,18 +19,11 @@ import {
 } from "./tui/components/static-panels.mjs";
 import { runTerminalInputLoop } from "./terminal-input.mjs";
 import { applyTerminalTheme, buildTerminalTheme } from "./terminal-theme.mjs";
+import { zyraLogoRows } from "./zyra-logo.mjs";
 
 const bold = "\x1b[1m";
 const reset = "\x1b[0m";
 const fallbackTheme = buildTerminalTheme();
-const zyraLogoRows = [
-  "┏━━━┳┓ ┏┳━┳━━┓",
-  "┣━━┃┃┃ ┃┃┏┫┏┓┃",
-  "┃┃━━┫┗━┛┃┃┃┏┓┃",
-  "┗━━━┻━┓┏┻┛┗┛┗┛",
-  "    ┏━┛┃",
-  "    ┗━━┛",
-];
 const outroMessages = loadJson("./outro-messages.json", {
   sessionComplete: ["another great coding session complete... or not, who knows"],
   fromElson: ["I am always rooting for her."],
@@ -162,7 +156,7 @@ export function createZyraUi(options = {}) {
   };
 
   const updateTool = (event, state) => {
-    const toolCallId = event.toolCallId ?? event.id ?? `${event.toolName ?? event.name ?? "tool"}:${activeTools.size}`;
+    const toolCallId = resolveToolCallId(event, state);
     const current = activeTools.get(toolCallId) ?? {};
     const next = {
       ...current,
@@ -206,6 +200,22 @@ export function createZyraUi(options = {}) {
     activityLabel = activeTools.size > 0 ? activityFromTool(activeTools.values().next().value) : "thinking";
     if (!inputActive) host.printLines(component.render(host.width()));
     else host.invalidate();
+  };
+
+  const resolveToolCallId = (event, state) => {
+    const explicitId = event.toolCallId ?? event.id;
+    if (explicitId) return String(explicitId);
+
+    const toolName = event.toolName ?? event.name ?? "tool";
+    const candidates = [...activeTools.entries()].filter(([, tool]) => sameToolName(tool, toolName));
+    if (event.type !== "tool_execution_start" || state !== "running") {
+      const signature = toolEventSignature(event);
+      const match = candidates.find(([, tool]) => signature && toolEventSignature(tool) === signature);
+      if (match) return match[0];
+      if (candidates.length === 1) return candidates[0][0];
+    }
+
+    return `${toolName}:${activeTools.size}`;
   };
 
   const beginProgressBox = (title = "Working") => {
@@ -336,6 +346,12 @@ export function createZyraUi(options = {}) {
     info(text) {
       appendPanel(infoPanel(text, theme));
     },
+    restartTransition(label = "reloading zyra") {
+      const text = `${theme.accent}~${reset} ${theme.muted}${String(label ?? "reloading zyra").replace(/\s+/g, " ").trim() || "reloading zyra"}${reset}`;
+      host.setInputComponent(new LinesPanelComponent("restart-transition", [`  ${text}`], { persistent: false }));
+      host.setFooterComponent(null);
+      host.invalidate({ force: true });
+    },
     block(lines = []) {
       appendLines(Array.isArray(lines) ? lines : String(lines ?? "").split(/\r?\n/));
     },
@@ -343,6 +359,17 @@ export function createZyraUi(options = {}) {
       applyTerminalTheme(theme, nextTheme);
       host.inputComponent?.setTheme?.(theme);
       host.invalidate({ force: true });
+    },
+    async selectWebTools(current) {
+      host.inputComponent?.setInputLocked?.(true);
+      host.clearRendered();
+      try {
+        return await selectWebTools(current, { theme, output });
+      } finally {
+        host.inputComponent?.setInputLocked?.(false);
+        host.markContentDirty();
+        host.invalidate({ force: true });
+      }
     },
     themes(themes, activeName) {
       const lines = ["", `${bold}Themes${reset}`];
@@ -524,6 +551,22 @@ function summarizeTool(event) {
   return keys.slice(0, 3).join(", ");
 }
 
+function sameToolName(tool, name) {
+  const left = formatToolActivity(tool?.toolName ?? tool?.name ?? "tool");
+  const right = formatToolActivity(name ?? "tool");
+  return left === right;
+}
+
+function toolEventSignature(event = {}) {
+  const args = event.args ?? event.arguments;
+  if (!args || typeof args !== "object") return "";
+  const command = args.command ?? args.cmd;
+  if (command) return `command:${String(command)}`;
+  const target = args.path ?? args.filePath ?? args.file_path ?? args.targetPath ?? args.target_file ?? args.filename ?? args.cwd;
+  if (target) return `target:${String(target)}`;
+  return "";
+}
+
 function activityFromAssistantEvent(event) {
   const update = event.assistantMessageEvent;
   if (update?.type === "thinking_start" || update?.type === "thinking_delta") return "thinking";
@@ -635,8 +678,6 @@ function extractAssistantEventContent(event, current = emptyAssistantContent()) 
   }
   return next;
 }
-
-export const createCaraUi = createZyraUi;
 
 export class AssistantMessageLifecycle {
   constructor() {

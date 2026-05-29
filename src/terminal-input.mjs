@@ -31,7 +31,7 @@ export async function runTerminalInputLoop(onInput, options = {}, controls = {})
     onSubmit: onInput,
     onUserMessage: controls.onUserMessage,
     onExit(status = 0) {
-      cleanup();
+      cleanup({ restart: status === "restart" });
       if (status === 130) process.exit(130);
     },
   });
@@ -53,10 +53,14 @@ export async function runTerminalInputLoop(onInput, options = {}, controls = {})
     }
   };
 
-  const cleanup = () => {
+  const cleanup = (cleanupOptions = {}) => {
     if (cleanedUp) return;
     cleanedUp = true;
     input.off("keypress", onKeypress);
+    if (cleanupOptions.restart) {
+      input.removeAllListeners?.("keypress");
+      input.removeAllListeners?.("data");
+    }
     if (resizeRenderTimer) clearTimeout(resizeRenderTimer);
     outputOffResize(host, scheduleResizeRender);
     process.off?.("SIGWINCH", scheduleResizeRender);

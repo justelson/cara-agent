@@ -2,7 +2,6 @@ node_modules/
 dist/
 shims/
 .playwright-cli/
-.cara/
 .zyra/
 .coord/
 tmp/
@@ -19,3 +18,15 @@ resources/cara-analysis/
 apps/*/node_modules/
 apps/*/dist/
 apps/*/.playwright-cli/
+
+# App surfaces intentionally kept out of the CLI push for now
+apps/zyra-ui/
+apps/cara-notes/
+src/zyra-ui-bridge.mjs
+
+# Local archive/import helpers for private Instagram/Cara data
+tools/import-instagram-message-logs.mjs
+tools/normalize-cara-archive.mjs
+
+# Old planning artifact, not part of the current CLI push
+docs/cara-pi-style-tui-rebuild-plan.md

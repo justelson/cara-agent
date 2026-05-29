@@ -6,33 +6,29 @@
   "type": "module",
   "scripts": {
     "zyra": "node bin/zyra.mjs",
-    "cara": "node bin/cara.mjs",
     "inspect": "node bin/zyra.mjs inspect",
     "ask": "node bin/zyra.mjs ask",
     "doctor": "node bin/zyra.mjs doctor",
-    "check": "node --check src/zyra-ui.mjs && node --check src/terminal-input.mjs && node --check src/zyra.mjs && node --check src/zyra-memory.mjs && node --check src/memory/zyra-memory-state.mjs && node --check src/memory/zyra-memory-store.mjs && node --check src/memory/zyra-memory-bootstrap.mjs && node --check src/memory/zyra-memory-modes.mjs && node --check src/memory/zyra-memory-read.mjs && node --check src/memory/zyra-memory-phase2.mjs && node --check src/memory/zyra-memory-sessions.mjs && node --check src/memory/zyra-memory-stage1.mjs && node --check src/memory/zyra-memory-stage1-outputs.mjs && node --check src/memory/zyra-memory-worker-io.mjs && node --check src/memory/zyra-memory-worker-prompts.mjs && node --check src/memory/zyra-memory-workspace.mjs && node --check src/memory/zyra-memory-prompts.mjs && node --check src/memory/zyra-memory-runner.mjs && node --check src/memory/zyra-memory-controller.mjs && node --check src/tui/zyra-tui.mjs && node --check src/tui/component-host.mjs && node --check src/tui/render-utils.mjs && node --check src/tui/components/editor.mjs && node --check src/tui/components/message-components.mjs && node --check src/tui/components/static-panels.mjs && node --check scripts/test-zyra-memory.mjs && node scripts/test-zyra-memory.mjs && node scripts/test-zyra-ui-render.mjs && node bin/zyra.mjs doctor",
+    "check": "node --check src/web-search-tool.mjs && node --check src/web-tools-picker.mjs && node --check src/onboarding.mjs && node --check src/zyra-ui.mjs && node --check src/terminal-input.mjs && node --check src/zyra.mjs && node --check src/zyra-memory.mjs && node --check src/memory/zyra-memory-state.mjs && node --check src/memory/zyra-memory-store.mjs && node --check src/memory/zyra-memory-bootstrap.mjs && node --check src/memory/zyra-memory-modes.mjs && node --check src/memory/zyra-memory-read.mjs && node --check src/memory/zyra-memory-phase2.mjs && node --check src/memory/zyra-memory-sessions.mjs && node --check src/memory/zyra-memory-stage1.mjs && node --check src/memory/zyra-memory-stage1-outputs.mjs && node --check src/memory/zyra-memory-worker-io.mjs && node --check src/memory/zyra-memory-worker-prompts.mjs && node --check src/memory/zyra-memory-workspace.mjs && node --check src/memory/zyra-memory-prompts.mjs && node --check src/memory/zyra-memory-runner.mjs && node --check src/memory/zyra-memory-controller.mjs && node --check src/tui/zyra-tui.mjs && node --check src/tui/component-host.mjs && node --check src/tui/render-utils.mjs && node --check src/tui/components/editor.mjs && node --check src/tui/components/message-components.mjs && node --check src/tui/components/static-panels.mjs && node --check scripts/test-zyra-memory.mjs && node scripts/test-zyra-memory.mjs && node scripts/test-zyra-ui-render.mjs && node bin/zyra.mjs doctor",
     "release:zip": "node scripts/build-release.mjs",
     "install:global": "bun link",
-    "ui:dev": "bun run --cwd apps/cara-ui dev",
-    "ui:build": "bun run --cwd apps/cara-ui build",
-    "ui:typecheck": "bun run --cwd apps/cara-ui typecheck"
+    "ui:dev": "bun run --cwd apps/zyra-ui dev",
+    "ui:build": "bun run --cwd apps/zyra-ui build",
+    "ui:typecheck": "bun run --cwd apps/zyra-ui typecheck"
   },
   "bin": {
-    "zyra": "bin/zyra.mjs",
-    "cara": "bin/cara.mjs"
+    "zyra": "bin/zyra.mjs"
   },
   "files": [
     "AGENTS.md",
     "README.md",
     "bin",
-    "cara.cmd",
-    "cara.ps1",
     "commands",
     "install.cmd",
     "install.ps1",
     "install.sh",
     "scripts",
-    "apps/cara-ui",
+    "apps/zyra-ui",
     "prompts",
     "src",
     "zyra.cmd",
@@ -43,6 +39,7 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "^0.75.3"
+    "@earendil-works/pi-coding-agent": "^0.75.3",
+    "typebox": "^1.1.24"
   }
 }

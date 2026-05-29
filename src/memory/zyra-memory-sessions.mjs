@@ -14,7 +14,6 @@ export function createMemorySessionPath(deps) {
       const dirs = [
         options.sessionsDir,
         project ? path.join(path.resolve(project), ".zyra", "sessions") : undefined,
-        project ? path.join(path.resolve(project), ".cara", "sessions") : undefined,
       ]
         .filter(Boolean)
         .map((dir) => path.resolve(dir));

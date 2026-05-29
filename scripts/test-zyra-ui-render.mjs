@@ -4,8 +4,9 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getSlashSuggestions } from "../src/slash-suggestions.mjs";
+import { markOnboardingComplete, readOnboardingState, shouldRunOnboarding } from "../src/onboarding.mjs";
 import { AssistantMessageLifecycle, createZyraUi, mergeAssistantTextDelta } from "../src/zyra-ui.mjs";
-import { resolveZyraStartupPreferences, setModel, setProfile, setThinking, setZyraTheme } from "../src/zyra-sdk.mjs";
+import { resolveZyraStartupPreferences, setModel, setProfile, setThinking, setWebFetch, setWebSearch, setZyraTheme } from "../src/zyra-sdk.mjs";
 import { renderStatusLine } from "../src/status-line.mjs";
 import { buildTerminalTheme } from "../src/terminal-theme.mjs";
 import { renderAccountStatusBox, renderCodexUsageBox, renderStatusBox } from "../src/terminal-blocks.mjs";
@@ -71,7 +72,7 @@ function runRepeatedSnapshotRegression() {
   const lifecycle = new AssistantMessageLifecycle();
   lifecycle.start(assistantMessage());
 
-  const snapshot = "```text\nC:\\Users\\elson\\my_coding_play\\playground\\Cara's agent\n```";
+  const snapshot = "```text\nC:\\Users\\elson\\my_coding_play\\zyra\n```";
   lifecycle.update(updateEvent(snapshot));
   lifecycle.update(updateEvent(snapshot));
   lifecycle.update(updateEvent(snapshot));
@@ -238,11 +239,36 @@ function runToolCommandMultilineRegression() {
   assert.equal(rendered.every((line) => !line.includes("\n")), true, "multiline commands should render as physical rows");
   assert.match(meaningful[0], /^\s*\$ python - <<'PY'/);
   assert.match(meaningful[0], /bash running 1\.[0-9]s \(timeout 20s\)\s*$/);
-  assert.equal(meaningful.some((line) => line.trim() === "from pathlib import Path"), true);
-  assert.equal(meaningful.some((line) => line.trim() === "from textwrap import dedent"), true);
+  assert.equal(meaningful.some((line) => line.trim() === "from pathlib import Path"), false);
+  assert.equal(meaningful.some((line) => line.trim() === "from textwrap import dedent"), false);
+  assert.equal(meaningful.filter((line) => line.includes("python - <<")).length, 1);
   assert.equal(lines[1].trim(), "", "tool block should include Pi-like top inner padding");
   assert.equal(lines[lines.length - 2].trim(), "", "tool block should include Pi-like bottom inner padding");
   assert.equal(lines.every((line) => line.length <= 96), true);
+}
+
+function runToolLongCommandAndHugeOutputClampRegression() {
+  const hugeSourceMapLine = `C:/Users/elson/my_coding_play/zyra/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.d.ts.map:1:${"{\"version\":3,\"sourcesContent\":["}${"x".repeat(1200)}`;
+  const lines = renderToolBlock({
+    state: "running",
+    toolName: "bash",
+    args: {
+      command: 'grep -R "customTools" -n C:/Users/elson/my_coding_play/zyra/node_modules/@earendil-works/pi-coding-agent/dist C:/Users/elson/my_coding_play/zyra/node_modules/@earendil-works/pi-coding-agent/src 2>/dev/null | head -40',
+    },
+    partialResult: { content: [{ type: "text", text: hugeSourceMapLine }] },
+    startedAt: Date.now() - 1400,
+  }, undefined, 96).map(stripAnsi);
+  const meaningful = lines.filter((line) => line.trim().length > 0);
+  const commandRows = meaningful.filter((line) => line.includes("$ grep"));
+  const outputRows = meaningful.filter((line) => !line.includes("$ grep"));
+
+  assert.equal(commandRows.length, 1, "long tool commands should stay in one compact header row");
+  assert.equal(meaningful.some((line) => line.trim().startsWith("ng_play/zyra")), false, "command paths should not wrap into orphan continuation rows");
+  assert.equal(outputRows.length > 0, true, "tool output should still show a bounded preview");
+  assert.equal(outputRows.some((line) => line.includes("C:/Users/elson")), true, "tool output preview should keep the start of the long line");
+  assert.equal(meaningful.join("\n").includes("x".repeat(400)), false, "huge single-line output should be previewed, not dumped");
+  assert.equal(lines.every((line) => line.length <= 96), true);
+  assert.equal(meaningful.length <= 8, true, "giant source-map output should not make the tool block huge");
 }
 
 function runToolOutputUsesFullBlockWidthRegression() {
@@ -430,6 +456,34 @@ function runInteractiveToolComponentRegression() {
   assert.match(plain, /clean/);
 }
 
+function runToolEventsWithoutIdsReuseActiveComponentRegression() {
+  const ui = createZyraUi();
+  ui._debugBeginInteractiveForTests();
+  ui.event({
+    type: "tool_execution_start",
+    toolName: "bash",
+    args: { command: "node scripts/test-zyra-ui-render.mjs" },
+  });
+  ui.event({
+    type: "tool_execution_update",
+    toolName: "bash",
+    args: { command: "node scripts/test-zyra-ui-render.mjs" },
+    partialResult: { content: [{ type: "text", text: "running suite" }] },
+  });
+  ui.event({
+    type: "tool_execution_end",
+    toolName: "bash",
+    args: { command: "node scripts/test-zyra-ui-render.mjs" },
+    result: { content: [{ type: "text", text: "suite ok" }] },
+  });
+  const plain = ui._debugRenderLinesForTests(90).map(stripAnsi).join("\n");
+
+  assert.equal((plain.match(/\$ node scripts\/test-zyra-ui-render\.mjs/g) ?? []).length, 1, "tool events without ids should update the running component instead of appending a second one");
+  assert.match(plain, /suite ok/);
+  assert.doesNotMatch(plain, /running suite/);
+  assert.doesNotMatch(plain, /bash running/);
+}
+
 function runRunningToolStartsImmediatelyRegression() {
   const ui = createZyraUi();
   ui._debugBeginInteractiveForTests();
@@ -558,16 +612,28 @@ function runStaticPanelsThroughHostRegression() {
   ui._debugBeginInteractiveForTests();
   ui.status({
     model: "openai-codex/gpt-5.5",
-    project: "C:\\Users\\elson\\my_coding_play\\playground\\Cara's agent",
+    project: "C:\\Users\\elson\\my_coding_play\\zyra",
     profile: "elson",
     thinking: "medium",
     terminalTheme: "rose-pine",
+    webSearch: true,
+    webFetch: true,
     usage: {},
   });
   ui.commands();
   const plain = ui._debugRenderLinesForTests(90).map(stripAnsi).join("\n");
   assert.match(plain, /Zyra session/);
   assert.match(plain, /Slash commands/);
+  assert.match(plain, /\/memory\s+toggle memory logging for this chat/);
+  assert.match(plain, /Web\s+:\s+all on/);
+  assert.match(plain, /\/web\s+choose web tools/);
+  assert.match(plain, /\/websearch \[on\|off\]\s+toggle web search/);
+  assert.match(plain, /\/webfetch \[on\|off\]\s+toggle page fetching/);
+  assert.doesNotMatch(plain, /\/memory search/);
+  assert.doesNotMatch(plain, /\/memory sources/);
+  assert.doesNotMatch(plain, /\/memory jobs/);
+  assert.doesNotMatch(plain, /\/memory reset/);
+  assert.doesNotMatch(plain, /\/consolidate/);
 }
 
 function runResizeFullRedrawRegression() {
@@ -677,7 +743,7 @@ function runPreInteractivePanelsSurviveInteractiveRegression() {
   captureStdout(() => {
     const ui = createZyraUi();
     ui.banner({
-      project: "C:\\Users\\elson\\my_coding_play\\playground\\Cara's agent",
+      project: "C:\\Users\\elson\\my_coding_play\\zyra",
       model: "openai-codex/gpt-5.5",
       profile: "elson",
       thinking: "medium",
@@ -716,7 +782,7 @@ function runStartupSectionLabelsUseActiveThemeRegression() {
       },
     });
     ui.banner({
-      project: "C:\\Users\\elson\\my_coding_play\\playground\\Cara's agent",
+      project: "C:\\Users\\elson\\my_coding_play\\zyra",
       model: "openai-codex/gpt-5.5",
       profile: "elson",
       thinking: "medium",
@@ -783,6 +849,19 @@ function runTranscriptScrollKeepsInputPinnedRegression() {
   assert.equal(host.scrollBy(8), false, "normal terminal scrollback should handle scroll without app-owned mouse capture");
 }
 
+function runRestartTransitionReplacesInputRailRegression() {
+  const ui = createZyraUi();
+  ui._debugBeginInteractiveForTests();
+  ui.restartTransition("reloading zyra");
+  const lines = ui._debugRenderLinesForTests(80).map(stripAnsi);
+  const plain = lines.join("\n");
+
+  assert.match(plain, /~ reloading zyra/);
+  assert.doesNotMatch(plain, /> /, "reload transition should replace the editable prompt");
+  assert.doesNotMatch(plain, /STATUS/, "reload transition should not leave the status line in the input rail");
+  assert.equal(lines.filter((line) => line.trim()).length, 1, "reload transition should be a single fixed line, not the full editor rail");
+}
+
 function runEditorStatusGapRegression() {
   const editor = new EditorComponent({
     statusLine: () => "STATUS",
@@ -825,6 +904,18 @@ function runEditorWordWrapRegression() {
   assert.equal(lines.every((line) => line.length <= 22), true);
 }
 
+function runEditorPlaceholderSpacingRegression() {
+  const editor = new EditorComponent({
+    suggestions: () => [],
+    theme: {},
+  });
+  editor.placeholderText = "what should happen";
+
+  const lines = editor.render(80).map(stripAnsi);
+  assert.equal(lines[1], "> what should happen", "empty editor placeholder should start at the input cursor, not after an extra cursor spacer");
+  assert.deepEqual(editor.cursorPosition(80), { row: 1, col: 2 }, "hardware cursor should stay immediately after the prompt spacer");
+}
+
 function runEditorSpaceKeyPreservesTrailingSpaceRegression() {
   const editor = new EditorComponent({
     suggestions: () => [],
@@ -835,6 +926,24 @@ function runEditorSpaceKeyPreservesTrailingSpaceRegression() {
   const lines = editor.render(30).map(stripAnsi);
   assert.equal(lines[1], "> hello ", "typed trailing space should stay in the rendered input row");
   assert.deepEqual(editor.cursorPosition(30), { row: 1, col: 8 }, "cursor should advance past a typed space");
+}
+
+async function runEditorRestartSubmitPreservesRestartSignalRegression() {
+  let exitStatus = null;
+  const editor = new EditorComponent({
+    suggestions: () => [],
+    theme: {},
+    onSubmit: async () => "restart",
+    onExit: (status) => {
+      exitStatus = status;
+    },
+  });
+  editor.buffer = "/reload";
+
+  await editor.handleKeypress("\r", { name: "return" });
+
+  assert.equal(exitStatus, "restart", "reload submissions should tell input cleanup to preserve stdin for the replacement process");
+  assert.equal(editor.exitingForRestart, true, "reload submissions should suppress the final normal editor redraw");
 }
 
 function runEditorUsesHardwareCursorRegression() {
@@ -1059,6 +1168,32 @@ function runStatusLineCostCacheRegression() {
   assert.equal(iterations, 1, "status line should not rescan message cost on every input render");
 }
 
+function runStatusLineBranchLookupDoesNotBlockInputRegression() {
+  const runtime = {
+    profile: "elson",
+    terminalTheme: "quiet",
+    session: {
+      model: { provider: "openai-codex", id: "gpt-test" },
+      thinkingLevel: "medium",
+      getContextUsage: () => ({ percent: 10 }),
+      sessionManager: {
+        getCwd: () => process.cwd(),
+        getEntries: () => [],
+      },
+      modelRegistry: {
+        isUsingOAuth: () => true,
+      },
+    },
+  };
+  const start = performance.now();
+  for (let index = 0; index < 100; index += 1) {
+    renderStatusLine(runtime, 120);
+  }
+  const elapsed = performance.now() - start;
+
+  assert.equal(elapsed < 300, true, `status line branch lookup should not block input renders (${elapsed.toFixed(1)}ms)`);
+}
+
 function runSystemPanelWidthRegression() {
   const widthOf = (lines) => stripAnsi(lines.find((line) => stripAnsi(line).trim()) ?? "").length;
   const account = {
@@ -1107,6 +1242,22 @@ function runThemePreferencePersistenceRegression() {
   }
 }
 
+function runOnboardingStateRegression() {
+  const root = mkdtempSync(path.join(os.tmpdir(), "zyra-onboarding-"));
+  try {
+    assert.deepEqual(readOnboardingState(root), {});
+    assert.equal(shouldRunOnboarding({ root, force: true }), true);
+    markOnboardingComplete(root, { terminalTheme: "quiet", webSearch: true, webFetch: false });
+    const state = readOnboardingState(root);
+    assert.equal(state.version, 1);
+    assert.equal(state.terminalTheme, "quiet");
+    assert.equal(state.webFetch, false);
+    assert.equal(shouldRunOnboarding({ root, skip: true }), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function runRuntimePreferencePersistenceRegression() {
   const project = mkdtempSync(path.join(os.tmpdir(), "zyra-runtime-prefs-"));
   try {
@@ -1116,8 +1267,17 @@ async function runRuntimePreferencePersistenceRegression() {
       profile: "elson",
       session: {
         agent: { state: { systemPrompt: "" } },
+        activeTools: ["read", "bash", "edit", "write", "web_search", "web_fetch"],
         thinkingLevel: "medium",
         getAvailableThinkingLevels: () => ["low", "medium", "high"],
+        getActiveToolNames() {
+          return this.activeTools;
+        },
+        setActiveToolsByName(names) {
+          this.activeTools = names;
+          this._baseSystemPrompt = "";
+          this.agent.state.systemPrompt = "";
+        },
         setThinkingLevel(level) {
           this.thinkingLevel = level;
         },
@@ -1144,26 +1304,41 @@ async function runRuntimePreferencePersistenceRegression() {
     setProfile(runtime, "cara");
     setThinking(runtime, "high");
     await setModel(runtime, "gpt-test");
+    setWebSearch(runtime, false);
+    setWebFetch(runtime, false);
 
     const preferences = JSON.parse(readFileSync(path.join(project, ".zyra", "preferences.json"), "utf8"));
     assert.equal(preferences.profile, "cara");
     assert.equal(preferences.profileResolved, "cara");
     assert.equal(preferences.thinking, "high");
     assert.equal(preferences.model, "openai-codex/gpt-test");
+    assert.equal(preferences.webSearch, false);
+    assert.equal(preferences.webFetch, false);
+    assert.equal(runtime.webSearch, false);
+    assert.equal(runtime.webFetch, false);
+    assert.equal(runtime.session.activeTools.includes("web_search"), false);
+    assert.equal(runtime.session.activeTools.includes("web_fetch"), false);
+    assert.match(runtime.session.agent.state.systemPrompt, /ZYRA_LEVEL_1_GUIDE/);
 
     const startup = resolveZyraStartupPreferences(project);
     assert.equal(startup.profile, "cara");
     assert.equal(startup.thinking, "high");
     assert.equal(startup.model, "openai-codex/gpt-test");
+    assert.equal(startup.webSearch, false);
+    assert.equal(startup.webFetch, false);
 
     const overridden = resolveZyraStartupPreferences(project, {
       profile: "elson",
       thinking: "low",
       model: "openai-codex/gpt-other",
+      webSearch: true,
+      webFetch: true,
     });
     assert.equal(overridden.profile, "elson");
     assert.equal(overridden.thinking, "low");
     assert.equal(overridden.model, "openai-codex/gpt-other");
+    assert.equal(overridden.webSearch, true);
+    assert.equal(overridden.webFetch, true);
   } finally {
     rmSync(project, { recursive: true, force: true });
   }
@@ -1174,6 +1349,15 @@ function runSessionCommandRenameRegression() {
   assert.equal(values.includes("/session"), true);
   assert.equal(values.includes("/chat"), true);
   assert.equal(values.includes("/status"), false);
+  assert.equal(values.includes("/memory"), true);
+  assert.equal(values.includes("/web"), true);
+  assert.equal(values.includes("/websearch"), true);
+  assert.equal(values.includes("/webfetch"), true);
+  assert.deepEqual(getSlashSuggestions({ project: process.cwd(), session: {} }, "/web ").map((item) => item.value), ["all", "none", "websearch", "webfetch"]);
+  assert.deepEqual(getSlashSuggestions({ project: process.cwd(), session: {} }, "/websearch ").map((item) => item.value), ["on", "off"]);
+  assert.deepEqual(getSlashSuggestions({ project: process.cwd(), session: {} }, "/webfetch ").map((item) => item.value), ["on", "off"]);
+  assert.equal(values.some((value) => value.startsWith("/memory ")), false);
+  assert.equal(values.includes("/consolidate"), false);
 }
 
 runDeltaStreamingRegression();
@@ -1187,6 +1371,7 @@ runToolOutputStyleRegression();
 runPiLikeToolPresentationRegression();
 runToolCommandInlineRunningTimeRegression();
 runToolCommandMultilineRegression();
+runToolLongCommandAndHugeOutputClampRegression();
 runToolOutputUsesFullBlockWidthRegression();
 runToolOutputWordWrapRegression();
 runEditToolPiLikeRegression();
@@ -1194,6 +1379,7 @@ runToolCallThemeStylingRegression();
 runInteractiveAssistantComponentRegression();
 runInteractiveNoTurnEndDuplicateRegression();
 runInteractiveToolComponentRegression();
+runToolEventsWithoutIdsReuseActiveComponentRegression();
 runRunningToolStartsImmediatelyRegression();
 runWriteToolRicherRepresentationRegression();
 runConsecutiveToolSpacingRegression();
@@ -1207,10 +1393,13 @@ runPreInteractivePanelsSurviveInteractiveRegression();
 runStartupSectionLabelsUseActiveThemeRegression();
 runInteractiveSessionResetRedrawRegression();
 runTranscriptScrollKeepsInputPinnedRegression();
+runRestartTransitionReplacesInputRailRegression();
 runEditorStatusGapRegression();
 runEditorBusySpacingRegression();
 runEditorWordWrapRegression();
+runEditorPlaceholderSpacingRegression();
 runEditorSpaceKeyPreservesTrailingSpaceRegression();
+await runEditorRestartSubmitPreservesRestartSignalRegression();
 runEditorUsesHardwareCursorRegression();
 runFixedOnlyRenderReturnsFromHardwareCursorRegression();
 runEditorSessionResetRegression();
@@ -1219,8 +1408,10 @@ runThemeSelectorStartsOnActiveThemeRegression();
 runFixedOnlyInputRenderAvoidsTranscriptReplayRegression();
 runStatusLineColorRegression();
 runStatusLineCostCacheRegression();
+runStatusLineBranchLookupDoesNotBlockInputRegression();
 runSystemPanelWidthRegression();
 runThemePreferencePersistenceRegression();
+runOnboardingStateRegression();
 await runRuntimePreferencePersistenceRegression();
 runSessionCommandRenameRegression();
 console.log("zyra-ui render regression: ok");
